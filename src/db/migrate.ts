@@ -1,14 +1,12 @@
 import dotenv from 'dotenv';
-// 1. Immediately initialize environment variables before doing anything else
 dotenv.config();
 
-// 2. Safely import your query mechanism now that process.env is populated
-import { query } from './pool';
+import pool, { query } from './pool';
 
 async function migrate() {
   console.log('Running migrations...');
 
-  try {
+try {
     await query(`
       CREATE EXTENSION IF NOT EXISTS "pgcrypto";
 
@@ -187,8 +185,12 @@ async function migrate() {
     console.log('Migrations completed successfully!');
   } catch (error) {
     console.error('Migration failed:', error);
-    process.exit(1);
+    throw error;
+  } finally {
+    await pool.end();
   }
 }
 
-migrate();
+migrate().catch(() => {
+  process.exit(1);
+});
