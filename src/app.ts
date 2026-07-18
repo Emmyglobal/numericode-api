@@ -31,9 +31,15 @@ app.use(
     app.use(morgan(process.env.NODE_ENV === 'production' ? 'combined' : 'dev'))
   }
 
-  app.get('/health', (_req, res) =>
-    res.status(200).json({ success: true, data: { status: 'ok', timestamp: new Date().toISOString() } })
-  )
+app.get('/health', (_req, res) => {
+  res.json({
+    success: true,
+    version: "TEST-12345",
+    clientUrl: process.env.CLIENT_URL,
+    nodeEnv: process.env.NODE_ENV,
+    timestamp: new Date().toISOString(),
+  });
+});
 
   app.use('/api/auth',    authRoutes)
   app.use('/api/courses', coursesRoutes)
