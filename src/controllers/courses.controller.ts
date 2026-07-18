@@ -1,6 +1,6 @@
 import type { Request, Response, NextFunction } from 'express'
 import { query } from '../db/pool'
-import { ok, notFound } from '../utils/response'
+import { ok, notFound, fail } from '../utils/response'
 import type { CourseRow, ModuleRow, LessonRow, ResourceRow, LiveClassRow } from '../types'
 
 async function buildFullCourse(course: CourseRow) {
