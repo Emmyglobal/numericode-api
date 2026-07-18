@@ -235,6 +235,21 @@ try {
       CREATE INDEX IF NOT EXISTS idx_courses_instructor_id ON courses(instructor_id);
       CREATE INDEX IF NOT EXISTS idx_subscriptions_user_status ON subscriptions(user_id, status, ends_at);
       CREATE INDEX IF NOT EXISTS idx_lesson_boards_lesson_id ON lesson_boards(lesson_id);
+
+      -- Certificates
+      CREATE TABLE IF NOT EXISTS certificates (
+        id                 UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        user_id            UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        course_id          UUID NOT NULL REFERENCES courses(id) ON DELETE CASCADE,
+        course_title       VARCHAR(255) NOT NULL,
+        student_name       VARCHAR(255) NOT NULL,
+        final_percentage   NUMERIC(5,2) NOT NULL,
+        letter_grade       VARCHAR(2) NOT NULL,
+        certificate_code   VARCHAR(64) UNIQUE NOT NULL,
+        issued_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      );
+      CREATE INDEX IF NOT EXISTS idx_certificates_user_id ON certificates(user_id);
+      CREATE INDEX IF NOT EXISTS idx_certificates_certificate_code ON certificates(certificate_code);
     `);
 
     console.log('Migrations completed successfully!');

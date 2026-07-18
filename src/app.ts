@@ -14,6 +14,7 @@ import aiRoutes           from './routes/ai.routes'
 import subscriptionsRoutes from './routes/subscriptions.routes'
 import boardsRoutes       from './routes/boards.routes'
 import assessmentsRoutes  from './routes/assessments.routes'
+import certificatesRoutes from './routes/certificates.routes'
 import { errorHandler, notFoundHandler } from './middleware/errorHandler'
 
 export function createApp() {
@@ -55,6 +56,7 @@ app.get('/health', (_req, res) => {
   app.use('/api/subscriptions', subscriptionsRoutes)
   app.use('/api/boards', boardsRoutes)
   app.use('/api', assessmentsRoutes)
+  app.use('/api/certificates', certificatesRoutes)
 
   app.use(notFoundHandler)
   app.use(errorHandler)
