@@ -17,14 +17,14 @@ export function createApp() {
   const app = express()
 
   app.use(helmet())
-  app.use(cors({ origin: process.env.CLIENT_URL || 'https://numericode.vercel.app/', credentials: true }))
+  app.use(cors({ origin: process.env.CLIENT_URL || 'https://numericode.vercel.app', credentials: true }))
   app.use(express.json({ limit: '2mb' }))
   if (process.env.NODE_ENV !== 'test') {
     app.use(morgan(process.env.NODE_ENV === 'production' ? 'combined' : 'dev'))
   }
 
   app.get('/health', (_req, res) =>
-    res.json({ success: true, data: { status: 'ok', timestamp: new Date().toISOString() } })
+    res.status(200).json({ success: true, data: { status: 'ok', timestamp: new Date().toISOString() } })
   )
 
   app.use('/api/auth',    authRoutes)
