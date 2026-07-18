@@ -1,5 +1,7 @@
 import 'dotenv/config'
 import { query } from './pool'
+dotenv.config();
+import dotenv from 'dotenv';
 
 async function migrate() {
   console.log('Running migrations...')
