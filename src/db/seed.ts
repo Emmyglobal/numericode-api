@@ -14,7 +14,7 @@ async function seed() {
       ('Emmanuel Nwafor', 'emmanuel@numericode.com', $1, 'admin',   'active'),
       ('Trainer One',     'trainer@numericode.com',  $1, 'trainer', 'active'),
       ('Kolade Adebayo',  'kolade@gmail.com',         $1, 'student', 'active'),
-      ('Amaka Okonkwo',   'amaka@gmail.com',          $1, 'student', 'active'),npm run dev
+      ('Amaka Okonkwo',   'amaka@gmail.com',          $1, 'student', 'active'),
       
       ('Chidi Obi',       'chidi@gmail.com',          $1, 'student', 'active'),
       ('Ngozi Eze',       'ngozi@gmail.com',          $1, 'student', 'active'),

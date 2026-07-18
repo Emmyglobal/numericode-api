@@ -5,6 +5,7 @@ import {
   getTrainerSessions, getTrainerAssignments,
   createTrainerCourse, updateTrainerCourse, updateTrainerCourseStatus,
   getTrainerProfile, updateTrainerProfile,
+  getTrainerLessons,
 } from '../controllers/trainer.controller'
 
 const router = Router()
@@ -18,6 +19,7 @@ router.patch('/courses/:id/status', ...guard, updateTrainerCourseStatus)
 router.get('/students',           ...guard, getTrainerStudents)
 router.get('/sessions',           ...guard, getTrainerSessions)
 router.get('/assignments',        ...guard, getTrainerAssignments)
+router.get('/lessons',            ...guard, getTrainerLessons)
 router.get('/profile',            ...guard, getTrainerProfile)
 router.put('/profile',            ...guard, updateTrainerProfile)
 

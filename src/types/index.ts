@@ -4,7 +4,9 @@ export type Level                = 'beginner' | 'intermediate' | 'advanced'
 export type UserRole             = 'student' | 'trainer' | 'admin'
 export type UserStatus           = 'active' | 'suspended' | 'pending'
 export type CourseStatus         = 'published' | 'draft' | 'archived'
-export type AssignmentStatus     = 'pending' | 'submitted' | 'overdue'
+export type CourseAccessLevel    = 'free' | 'premium'
+export type AssignmentStatus     = 'pending' | 'submitted' | 'under_review' | 'graded' | 'passed' | 'failed' | 'overdue'
+export type SubscriptionStatus   = 'pending' | 'active' | 'cancelled' | 'expired'
 export type SessionStatus        = 'scheduled' | 'live' | 'completed'
 export type ResourceType         = 'pdf' | 'video' | 'link'
 export type AnnouncementAudience = 'all' | 'students' | 'trainers'
@@ -18,6 +20,7 @@ export interface CourseRow {
   id: string; title: string; description: string; subject: Subject
   level: Level; instructor_id: string; status: CourseStatus
   lesson_count: number; outcomes: string[]; thumbnail_url: string | null
+  access_level: CourseAccessLevel; price_cents: number; currency: string; premium_enabled: boolean
   created_at: Date
 }
 export interface ModuleRow    { id: string; course_id: string; title: string; position: number }
@@ -29,8 +32,9 @@ export interface LiveClassRow {
 }
 export interface EnrollmentRow { id: string; user_id: string; course_id: string; progress: number; enrolled_at: Date }
 export interface LessonCompletionRow { id: string; user_id: string; lesson_id: string; completed_at: Date }
-export interface AssignmentRow { id: string; course_id: string; title: string; due_date: Date; created_at: Date }
-export interface SubmissionRow { id: string; assignment_id: string; user_id: string; status: AssignmentStatus; submitted_at: Date | null }
+export interface AssignmentRow { id: string; course_id: string; title: string; due_date: Date; total_marks: number; passing_score: number; created_at: Date }
+export interface SubmissionRow { id: string; assignment_id: string; user_id: string; status: AssignmentStatus; submitted_at: Date | null; content: string | null; score: number | null; feedback: string | null; graded_at: Date | null; returned_for_correction: boolean }
+export interface SubscriptionRow { id: string; user_id: string; plan_code: string; status: SubscriptionStatus; provider: string | null; provider_reference: string | null; starts_at: Date; ends_at: Date; created_at: Date }
 export interface AnnouncementRow { id: string; title: string; body: string; audience: AnnouncementAudience; created_by: string; created_at: Date }
 
 // ─── API response types (camelCase matches frontend) ─────────────────────────

@@ -102,6 +102,7 @@ export async function getCourses(_req: Request, res: Response, next: NextFunctio
     return ok(res, rows.map(c => ({
       id: c.id, title: c.title, subject: c.subject, level: c.level,
       instructor: c.instructor_name, instructorId: c.instructor_id, status: c.status,
+      accessLevel: c.access_level, priceCents: c.price_cents, currency: c.currency, premiumEnabled: c.premium_enabled,
       enrolledCount: Number(c.enrolled_count), createdAt: c.created_at.toISOString(),
     })))
   } catch (err) { next(err) }
@@ -109,15 +110,17 @@ export async function getCourses(_req: Request, res: Response, next: NextFunctio
 
 export async function createCourse(req: Request, res: Response, next: NextFunction) {
   try {
-    const { title, description, subject, level, instructorId, outcomes } = req.body as {
+    const { title, description, subject, level, instructorId, outcomes, accessLevel = 'free', priceCents = 0, currency = 'NGN', premiumEnabled = true } = req.body as {
       title?: string; description?: string; subject?: string; level?: string
-      instructorId?: string; outcomes?: string[]
+      instructorId?: string; outcomes?: string[]; accessLevel?: string; priceCents?: number; currency?: string; premiumEnabled?: boolean
     }
     if (!title || !description || !subject || !level || !instructorId) {
       return fail(res, 'Title, description, subject, level, and instructorId are required', 400)
     }
     if (!['mathematics', 'programming'].includes(subject)) return fail(res, 'Invalid subject', 400)
     if (!['beginner', 'intermediate', 'advanced'].includes(level)) return fail(res, 'Invalid level', 400)
+    if (!['free', 'premium'].includes(accessLevel)) return fail(res, 'Invalid accessLevel', 400)
+    if (!Number.isInteger(priceCents) || priceCents < 0) return fail(res, 'priceCents must be a non-negative integer', 400)
 
     const { rows: instructorRows } = await query<UserRow>(
       `SELECT * FROM users WHERE id = $1 AND role = 'trainer'`, [instructorId]
@@ -125,9 +128,9 @@ export async function createCourse(req: Request, res: Response, next: NextFuncti
     if (!instructorRows[0]) return fail(res, 'instructorId must reference an existing trainer', 400)
 
     const { rows } = await query<CourseRow>(
-      `INSERT INTO courses (title, description, subject, level, instructor_id, status, outcomes)
-       VALUES ($1, $2, $3, $4, $5, 'draft', $6) RETURNING *`,
-      [title, description, subject, level, instructorId, outcomes ?? []]
+      `INSERT INTO courses (title, description, subject, level, instructor_id, status, outcomes, access_level, price_cents, currency, premium_enabled)
+       VALUES ($1, $2, $3, $4, $5, 'draft', $6, $7, $8, $9, $10) RETURNING *`,
+      [title, description, subject, level, instructorId, outcomes ?? [], accessLevel, priceCents, currency, premiumEnabled]
     )
     const c = rows[0]
 
@@ -138,9 +141,54 @@ export async function createCourse(req: Request, res: Response, next: NextFuncti
     return ok(res, {
       id: c.id, title: c.title, subject: c.subject, level: c.level,
       instructor: instructorRows[0].name, status: c.status,
-      enrolledCount: 0, createdAt: c.created_at.toISOString(),
+      enrolledCount: 0, accessLevel: c.access_level, priceCents: c.price_cents, currency: c.currency, premiumEnabled: c.premium_enabled, createdAt: c.created_at.toISOString(),
     }, 201)
   } catch (err) { next(err) }
+}
+
+export async function updateCourseAccess(req: Request, res: Response, next: NextFunction) {
+  try {
+    const { accessLevel, priceCents, currency, premiumEnabled } = req.body as { accessLevel?: string; priceCents?: number; currency?: string; premiumEnabled?: boolean }
+    if (accessLevel && !['free', 'premium'].includes(accessLevel)) return fail(res, 'Invalid accessLevel', 400)
+    if (priceCents !== undefined && (!Number.isInteger(priceCents) || priceCents < 0)) return fail(res, 'priceCents must be a non-negative integer', 400)
+    if (currency && !/^[A-Z]{3}$/.test(currency)) return fail(res, 'currency must be a three-letter code', 400)
+    const { rows } = await query<CourseRow>(
+      `UPDATE courses SET access_level = COALESCE($1, access_level), price_cents = COALESCE($2, price_cents),
+        currency = COALESCE($3, currency), premium_enabled = COALESCE($4, premium_enabled) WHERE id = $5 RETURNING *`,
+      [accessLevel, priceCents, currency, premiumEnabled, req.params.id]
+    )
+    if (!rows[0]) return notFound(res, 'Course not found')
+    const course = rows[0]
+    return ok(res, { id: course.id, accessLevel: course.access_level, priceCents: course.price_cents, currency: course.currency, premiumEnabled: course.premium_enabled })
+  } catch (error) { next(error) }
+}
+
+export async function getCourseCompletionSettings(req: Request, res: Response, next: NextFunction) {
+  try {
+    const { rows } = await query<{ minimum_lesson_completion: number; minimum_assignment_percentage: number; minimum_attendance_percentage: number }>(
+      `SELECT * FROM course_completion_settings WHERE course_id = $1`, [req.params.id]
+    )
+    const settings = rows[0] ?? { minimum_lesson_completion: 100, minimum_assignment_percentage: 50, minimum_attendance_percentage: 0 }
+    return ok(res, { minimumLessonCompletion: settings.minimum_lesson_completion, minimumAssignmentPercentage: Number(settings.minimum_assignment_percentage), minimumAttendancePercentage: Number(settings.minimum_attendance_percentage) })
+  } catch (error) { next(error) }
+}
+
+export async function updateCourseCompletionSettings(req: Request, res: Response, next: NextFunction) {
+  try {
+    const { minimumLessonCompletion = 100, minimumAssignmentPercentage = 50, minimumAttendancePercentage = 0 } = req.body as { minimumLessonCompletion?: number; minimumAssignmentPercentage?: number; minimumAttendancePercentage?: number }
+    const values = [minimumLessonCompletion, minimumAssignmentPercentage, minimumAttendancePercentage]
+    if (values.some(value => typeof value !== 'number' || value < 0 || value > 100)) return fail(res, 'Completion settings must be percentages between 0 and 100', 400)
+    const { rows: courses } = await query<{ id: string }>('SELECT id FROM courses WHERE id = $1', [req.params.id])
+    if (!courses[0]) return notFound(res, 'Course not found')
+    const { rows } = await query<{ minimum_lesson_completion: number; minimum_assignment_percentage: number; minimum_attendance_percentage: number }>(
+      `INSERT INTO course_completion_settings (course_id, minimum_lesson_completion, minimum_assignment_percentage, minimum_attendance_percentage)
+       VALUES ($1, $2, $3, $4) ON CONFLICT (course_id) DO UPDATE SET minimum_lesson_completion = EXCLUDED.minimum_lesson_completion,
+       minimum_assignment_percentage = EXCLUDED.minimum_assignment_percentage, minimum_attendance_percentage = EXCLUDED.minimum_attendance_percentage RETURNING *`,
+      [req.params.id, minimumLessonCompletion, minimumAssignmentPercentage, minimumAttendancePercentage]
+    )
+    const settings = rows[0]
+    return ok(res, { minimumLessonCompletion: settings.minimum_lesson_completion, minimumAssignmentPercentage: Number(settings.minimum_assignment_percentage), minimumAttendancePercentage: Number(settings.minimum_attendance_percentage) })
+  } catch (error) { next(error) }
 }
 
 export async function updateCourseStatus(req: Request, res: Response, next: NextFunction) {

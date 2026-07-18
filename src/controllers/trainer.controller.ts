@@ -147,9 +147,21 @@ export async function getTrainerAssignments(req: Request, res: Response, next: N
       id: a.id, courseId: a.course_id, courseTitle: a.course_title, title: a.title,
       dueDate: a.due_date.toISOString().slice(0, 10),
       totalSubmissions: Number(a.total), pendingReview: Number(a.pending),
+      totalMarks: Number(a.total_marks), passingScore: Number(a.passing_score),
       createdAt: a.created_at.toISOString(),
     })))
   } catch (err) { next(err) }
+}
+
+export async function getTrainerLessons(req: Request, res: Response, next: NextFunction) {
+  try {
+    const { rows } = await query<{ id: string; title: string; module_title: string; course_id: string; course_title: string }>(
+      `SELECT l.id, l.title, m.title AS module_title, c.id AS course_id, c.title AS course_title FROM lessons l
+       JOIN modules m ON m.id = l.module_id JOIN courses c ON c.id = m.course_id
+       WHERE c.instructor_id = $1 ORDER BY c.title, m.position, l.position`, [req.user!.userId]
+    )
+    return ok(res, rows.map(lesson => ({ id: lesson.id, title: lesson.title, moduleTitle: lesson.module_title, courseId: lesson.course_id, courseTitle: lesson.course_title })))
+  } catch (error) { next(error) }
 }
 
 export async function createTrainerCourse(req: Request, res: Response, next: NextFunction) {

@@ -3,7 +3,7 @@ import { query } from '../db/pool'
 import { ok, notFound, fail } from '../utils/response'
 import type { CourseRow, ModuleRow, LessonRow, ResourceRow, LiveClassRow } from '../types'
 
-async function buildFullCourse(course: CourseRow) {
+export async function buildFullCourse(course: CourseRow, includeProtectedContent = false, userId?: string) {
   const { rows: instructorRows } = await query<{ id: string; name: string; bio: string; avatar_url: string | null }>(
     'SELECT id, name, bio, avatar_url FROM users WHERE id = $1', [course.instructor_id]
   )
@@ -23,8 +23,8 @@ async function buildFullCourse(course: CourseRow) {
       )
       return {
         id: lesson.id, title: lesson.title, duration: lesson.duration,
-        isCompleted: false,
-        resources: resources.map(r => ({ id: r.id, title: r.title, type: r.type, url: r.url })),
+        isCompleted: userId ? Boolean((await query<{ id: string }>('SELECT id FROM lesson_completions WHERE user_id = $1 AND lesson_id = $2', [userId, lesson.id])).rows[0]) : false,
+        resources: includeProtectedContent ? resources.map(r => ({ id: r.id, title: r.title, type: r.type, url: r.url })) : [],
       }
     }))
     return { id: mod.id, title: mod.title, lessons: lessonsWithResources }
@@ -37,30 +37,32 @@ async function buildFullCourse(course: CourseRow) {
   return {
     id: course.id, title: course.title, description: course.description,
     subject: course.subject, level: course.level, lessonCount: course.lesson_count,
+    accessLevel: course.access_level, priceCents: course.price_cents, currency: course.currency, premiumEnabled: course.premium_enabled,
     outcomes: course.outcomes, createdAt: course.created_at.toISOString(),
     instructor: { id: instructor.id, name: instructor.name, bio: instructor.bio, avatarUrl: instructor.avatar_url ?? undefined, credentials: [] as string[] },
     modules: modulesWithLessons,
     liveClasses: liveClasses.map(lc => ({
       id: lc.id, title: lc.title, date: lc.date.toISOString(),
-      duration: lc.duration, meetUrl: lc.meet_url, status: lc.status,
+      duration: lc.duration, meetUrl: includeProtectedContent ? lc.meet_url : '', status: lc.status,
     })),
   }
 }
 
 export async function listCourses(req: Request, res: Response, next: NextFunction) {
   try {
-    const { subject, q } = req.query as { subject?: string; q?: string }
+    const { subject, q, accessLevel } = req.query as { subject?: string; q?: string; accessLevel?: string }
     const conditions: string[] = [`status = 'published'`]
     const params: unknown[] = []
 
     if (subject) { params.push(subject); conditions.push(`subject = $${params.length}`) }
     if (q)       { params.push(`%${q}%`); conditions.push(`(title ILIKE $${params.length} OR description ILIKE $${params.length})`) }
+    if (accessLevel && ['free', 'premium'].includes(accessLevel)) { params.push(accessLevel); conditions.push(`access_level = $${params.length}`) }
 
     const { rows } = await query<CourseRow>(
       `SELECT * FROM courses WHERE ${conditions.join(' AND ')} ORDER BY created_at DESC`,
       params
     )
-    const fullCourses = await Promise.all(rows.map(buildFullCourse))
+    const fullCourses = await Promise.all(rows.map(course => buildFullCourse(course)))
     return ok(res, fullCourses)
   } catch (err) { next(err) }
 }
@@ -83,14 +85,18 @@ export async function requestCourse(req: Request, res: Response, next: NextFunct
   try {
     const { rows: courses } = await query<CourseRow>(`SELECT * FROM courses WHERE id = $1 AND status = 'published'`, [req.params.id])
     if (!courses[0]) return notFound(res, 'Course is not available for enrolment')
+    const course = courses[0]
     const { rows: enrolled } = await query(`SELECT id FROM enrollments WHERE user_id = $1 AND course_id = $2`, [req.user!.userId, req.params.id])
     if (enrolled[0]) return fail(res, 'You are already enrolled in this course', 409)
-    const { rows } = await query<{ id: string; status: string }>(
-      `INSERT INTO course_requests (user_id, course_id) VALUES ($1, $2)
-       ON CONFLICT (user_id, course_id) DO UPDATE SET status = 'pending', created_at = NOW(), reviewed_at = NULL, reviewed_by = NULL
-       RETURNING id, status`, [req.user!.userId, req.params.id]
-    )
-    return ok(res, rows[0], 201)
+    if (course.access_level === 'premium') {
+      if (!course.premium_enabled) return fail(res, 'Premium access is temporarily unavailable for this course', 403)
+      const { rows: subscriptions } = await query<{ id: string }>(
+        `SELECT id FROM subscriptions WHERE user_id = $1 AND status = 'active' AND ends_at > NOW() LIMIT 1`, [req.user!.userId]
+      )
+      if (!subscriptions[0]) return fail(res, 'An active Premium subscription is required to enrol in this course', 403)
+    }
+    await query(`INSERT INTO enrollments (user_id, course_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`, [req.user!.userId, req.params.id])
+    return ok(res, { status: 'enrolled', courseId: req.params.id }, 201)
   } catch (err) { next(err) }
 }
 

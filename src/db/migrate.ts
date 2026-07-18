@@ -38,6 +38,10 @@ try {
         thumbnail_url VARCHAR(512),
         created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
       );
+      ALTER TABLE courses ADD COLUMN IF NOT EXISTS access_level VARCHAR(20) NOT NULL DEFAULT 'free' CHECK (access_level IN ('free','premium'));
+      ALTER TABLE courses ADD COLUMN IF NOT EXISTS price_cents INTEGER NOT NULL DEFAULT 0 CHECK (price_cents >= 0);
+      ALTER TABLE courses ADD COLUMN IF NOT EXISTS currency VARCHAR(3) NOT NULL DEFAULT 'NGN';
+      ALTER TABLE courses ADD COLUMN IF NOT EXISTS premium_enabled BOOLEAN NOT NULL DEFAULT TRUE;
 
       -- Modules
       CREATE TABLE IF NOT EXISTS modules (
@@ -128,15 +132,64 @@ try {
         due_date   TIMESTAMPTZ NOT NULL,
         created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
       );
+      ALTER TABLE assignments ADD COLUMN IF NOT EXISTS total_marks NUMERIC(8,2) NOT NULL DEFAULT 100 CHECK (total_marks > 0);
+      ALTER TABLE assignments ADD COLUMN IF NOT EXISTS passing_score NUMERIC(8,2) NOT NULL DEFAULT 50 CHECK (passing_score >= 0);
 
       -- Submissions
       CREATE TABLE IF NOT EXISTS submissions (
         id             UUID PRIMARY KEY DEFAULT gen_random_uuid(),
         assignment_id  UUID NOT NULL REFERENCES assignments(id) ON DELETE CASCADE,
         user_id        UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-        status         VARCHAR(20) NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','submitted','overdue')),
+        status         VARCHAR(20) NOT NULL DEFAULT 'pending',
         submitted_at   TIMESTAMPTZ,
         UNIQUE(assignment_id, user_id)
+      );
+      ALTER TABLE submissions DROP CONSTRAINT IF EXISTS submissions_status_check;
+      ALTER TABLE submissions ADD CONSTRAINT submissions_status_check CHECK (status IN ('pending','submitted','under_review','graded','passed','failed','overdue'));
+      ALTER TABLE submissions ADD COLUMN IF NOT EXISTS content TEXT;
+      ALTER TABLE submissions ADD COLUMN IF NOT EXISTS score NUMERIC(8,2);
+      ALTER TABLE submissions ADD COLUMN IF NOT EXISTS feedback TEXT;
+      ALTER TABLE submissions ADD COLUMN IF NOT EXISTS graded_at TIMESTAMPTZ;
+      ALTER TABLE submissions ADD COLUMN IF NOT EXISTS returned_for_correction BOOLEAN NOT NULL DEFAULT FALSE;
+
+      -- Provider-neutral subscriptions. A payment provider only needs to populate its name and reference.
+      CREATE TABLE IF NOT EXISTS subscriptions (
+        id                 UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        user_id            UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        plan_code          VARCHAR(50) NOT NULL DEFAULT 'premium',
+        status             VARCHAR(20) NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','active','cancelled','expired')),
+        provider           VARCHAR(50),
+        provider_reference VARCHAR(255) UNIQUE,
+        starts_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        ends_at            TIMESTAMPTZ NOT NULL,
+        created_at         TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      );
+
+      -- JSON scene documents keep lesson boards portable and ready for real-time collaboration.
+      CREATE TABLE IF NOT EXISTS lesson_boards (
+        id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        lesson_id   UUID NOT NULL REFERENCES lessons(id) ON DELETE CASCADE,
+        owner_id    UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        board_data  JSONB NOT NULL DEFAULT '{"version":1,"elements":[]}'::jsonb,
+        is_shared   BOOLEAN NOT NULL DEFAULT FALSE,
+        is_locked   BOOLEAN NOT NULL DEFAULT FALSE,
+        updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        UNIQUE(lesson_id, owner_id)
+      );
+
+      CREATE TABLE IF NOT EXISTS course_completion_settings (
+        course_id                    UUID PRIMARY KEY REFERENCES courses(id) ON DELETE CASCADE,
+        minimum_lesson_completion    INTEGER NOT NULL DEFAULT 100 CHECK (minimum_lesson_completion BETWEEN 0 AND 100),
+        minimum_assignment_percentage NUMERIC(5,2) NOT NULL DEFAULT 50 CHECK (minimum_assignment_percentage BETWEEN 0 AND 100),
+        minimum_attendance_percentage NUMERIC(5,2) NOT NULL DEFAULT 0 CHECK (minimum_attendance_percentage BETWEEN 0 AND 100)
+      );
+
+      CREATE TABLE IF NOT EXISTS live_class_attendance (
+        id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        live_class_id UUID NOT NULL REFERENCES live_classes(id) ON DELETE CASCADE,
+        user_id       UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        attended_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        UNIQUE(live_class_id, user_id)
       );
 
       -- Announcements
@@ -180,6 +233,8 @@ try {
       CREATE INDEX IF NOT EXISTS idx_lessons_module_id     ON lessons(module_id);
       CREATE INDEX IF NOT EXISTS idx_modules_course_id     ON modules(course_id);
       CREATE INDEX IF NOT EXISTS idx_courses_instructor_id ON courses(instructor_id);
+      CREATE INDEX IF NOT EXISTS idx_subscriptions_user_status ON subscriptions(user_id, status, ends_at);
+      CREATE INDEX IF NOT EXISTS idx_lesson_boards_lesson_id ON lesson_boards(lesson_id);
     `);
 
     console.log('Migrations completed successfully!');

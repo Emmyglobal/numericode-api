@@ -1,6 +1,8 @@
 import type { Request, Response, NextFunction } from 'express'
 import { query } from '../db/pool'
 import { ok, notFound } from '../utils/response'
+import { forbidden } from '../utils/response'
+import { buildFullCourse } from './courses.controller'
 import type {
   CourseRow, EnrollmentRow, AssignmentRow, AnnouncementRow,
   LiveClassRow, ResourceRow, UserRow,
@@ -85,24 +87,45 @@ export async function getMyCourses(req: Request, res: Response, next: NextFuncti
     return ok(res, rows.map(c => ({
       id: c.id, title: c.title, description: c.description, subject: c.subject,
       level: c.level, lessonCount: c.lesson_count, progress: c.progress,
+      accessLevel: c.access_level, priceCents: c.price_cents, currency: c.currency,
       enrolledAt: c.enrolled_at.toISOString(), createdAt: c.created_at.toISOString(),
     })))
   } catch (err) { next(err) }
 }
 
+export async function getMyCourse(req: Request, res: Response, next: NextFunction) {
+  try {
+    const { rows } = await query<CourseRow>(
+      `SELECT c.* FROM courses c JOIN enrollments e ON e.course_id = c.id WHERE c.id = $1 AND e.user_id = $2`,
+      [req.params.id, req.user!.userId]
+    )
+    if (!rows[0]) return notFound(res, 'Enrolled course not found')
+    const course = rows[0]
+    if (course.access_level === 'premium') {
+      const { rows: subscriptions } = await query<{ id: string }>(`SELECT id FROM subscriptions WHERE user_id = $1 AND status = 'active' AND ends_at > NOW()`, [req.user!.userId])
+      if (!course.premium_enabled || !subscriptions[0]) return forbidden(res, 'An active Premium subscription is required to access this course')
+    }
+    const fullCourse = await buildFullCourse(course, true, req.user!.userId)
+    const { rows: enrollmentRows } = await query<EnrollmentRow>('SELECT * FROM enrollments WHERE user_id = $1 AND course_id = $2', [req.user!.userId, course.id])
+    return ok(res, { ...fullCourse, progress: enrollmentRows[0].progress, enrolledAt: enrollmentRows[0].enrolled_at.toISOString() })
+  } catch (err) { next(err) }
+}
+
 export async function getAssignments(req: Request, res: Response, next: NextFunction) {
   try {
-    const { rows } = await query<AssignmentRow & { course_title: string; status: string }>(
+    const { rows } = await query<AssignmentRow & { course_title: string; status: string; score: number | null; feedback: string | null; returned_for_correction: boolean }>(
       `SELECT a.*, c.title AS course_title, s.status
        FROM assignments a
        JOIN courses c ON c.id = a.course_id
        JOIN enrollments e ON e.course_id = c.id AND e.user_id = $1
-       LEFT JOIN submissions s ON s.assignment_id = a.id AND s.user_id = $1`,
+       LEFT JOIN submissions s ON s.assignment_id = a.id AND s.user_id = $1
+       WHERE c.access_level = 'free' OR (c.premium_enabled AND EXISTS (SELECT 1 FROM subscriptions sub WHERE sub.user_id = $1 AND sub.status = 'active' AND sub.ends_at > NOW()))`,
       [req.user!.userId]
     )
     return ok(res, rows.map(a => ({
       id: a.id, courseId: a.course_id, courseTitle: a.course_title, title: a.title,
-      dueDate: a.due_date.toISOString().slice(0, 10), status: a.status ?? 'pending',
+      dueDate: a.due_date.toISOString().slice(0, 10), status: a.status ?? 'pending', totalMarks: Number(a.total_marks),
+      passingScore: Number(a.passing_score), score: a.score === null ? null : Number(a.score), feedback: a.feedback, returnedForCorrection: a.returned_for_correction,
     })))
   } catch (err) { next(err) }
 }
@@ -127,7 +150,8 @@ export async function getResources(req: Request, res: Response, next: NextFuncti
        JOIN lessons l ON l.id = r.lesson_id
        JOIN modules m ON m.id = l.module_id
        JOIN courses c ON c.id = m.course_id
-       JOIN enrollments e ON e.course_id = c.id AND e.user_id = $1`,
+       JOIN enrollments e ON e.course_id = c.id AND e.user_id = $1
+       WHERE c.access_level = 'free' OR (c.premium_enabled AND EXISTS (SELECT 1 FROM subscriptions s WHERE s.user_id = $1 AND s.status = 'active' AND s.ends_at > NOW()))`,
       [req.user!.userId]
     )
     return ok(res, rows.map(r => ({
@@ -143,7 +167,8 @@ export async function getLiveClasses(req: Request, res: Response, next: NextFunc
       `SELECT lc.*, c.title AS course_title, c.subject
        FROM live_classes lc
        JOIN courses c ON c.id = lc.course_id
-       JOIN enrollments e ON e.course_id = c.id AND e.user_id = $1`,
+       JOIN enrollments e ON e.course_id = c.id AND e.user_id = $1
+       WHERE c.access_level = 'free' OR (c.premium_enabled AND EXISTS (SELECT 1 FROM subscriptions s WHERE s.user_id = $1 AND s.status = 'active' AND s.ends_at > NOW()))`,
       [req.user!.userId]
     )
     return ok(res, rows.map(c => ({
