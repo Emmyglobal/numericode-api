@@ -16,8 +16,16 @@ import { errorHandler, notFoundHandler } from './middleware/errorHandler'
 export function createApp() {
   const app = express()
 
-  app.use(helmet())
-  app.use(cors({ origin: process.env.CLIENT_URL || 'https://numericode.vercel.app', credentials: true }))
+app.use(helmet())
+
+console.log('CLIENT_URL =', process.env.CLIENT_URL)
+
+app.use(
+  cors({
+    origin: true,
+    credentials: true,
+  })
+)
   app.use(express.json({ limit: '2mb' }))
   if (process.env.NODE_ENV !== 'test') {
     app.use(morgan(process.env.NODE_ENV === 'production' ? 'combined' : 'dev'))
