@@ -1,6 +1,7 @@
 import type { Request, Response, NextFunction } from 'express'
 import { query } from '../db/pool'
 import { ok, fail, notFound, forbidden } from '../utils/response'
+import { createMeetingLink } from '../utils/meeting'
 
 interface CourseNoteRow {
   id: string
@@ -159,13 +160,29 @@ export async function createTrainerSession(req: Request, res: Response, next: Ne
     if (!courseRows[0]) return notFound(res, 'Course not found')
     if (courseRows[0].instructor_id !== req.user!.userId) return forbidden(res, 'You can only schedule sessions for your own courses')
 
+    // Auto-generate meeting link if not provided
+    let finalMeetUrl = meetUrl?.trim() ?? ''
+    if (!finalMeetUrl) {
+      try {
+        const meeting = await createMeetingLink({
+          title,
+          startTime: new Date(date),
+          durationMinutes: duration ?? 60,
+        })
+        finalMeetUrl = meeting.url
+      } catch (meetingError) {
+        // Continue without meeting link - trainer can add it later
+        console.error('Failed to auto-generate meeting link:', meetingError)
+      }
+    }
+
     const { rows } = await query<{
       id: string; course_id: string; title: string; date: Date
       duration: number; meet_url: string; status: string; attendees: number
     }>(
       `INSERT INTO live_classes (course_id, title, date, duration, meet_url, status)
        VALUES ($1, $2, $3, $4, $5, 'scheduled') RETURNING *`,
-      [courseId, title, new Date(date), duration ?? 60, meetUrl ?? '']
+      [courseId, title, new Date(date), duration ?? 60, finalMeetUrl]
     )
     const s = rows[0]
     return ok(res, {
@@ -179,7 +196,7 @@ export async function createTrainerSession(req: Request, res: Response, next: Ne
 // ─── PUT /api/trainer/sessions/:id ───────────────────────────────────────────
 export async function updateTrainerSession(req: Request, res: Response, next: NextFunction) {
   try {
-    const { rows: existing } = await query<{ course_id: string; instructor_id: string }>(
+    const { rows: existing } = await query<{ course_id: string; instructor_id: string; title: string; date: Date; duration: number; meet_url: string }>(
       `SELECT lc.*, c.instructor_id FROM live_classes lc
        JOIN courses c ON c.id = lc.course_id WHERE lc.id = $1`,
       [req.params.id]
@@ -190,6 +207,27 @@ export async function updateTrainerSession(req: Request, res: Response, next: Ne
     const { title, date, duration, meetUrl, status } = req.body as {
       title?: string; date?: string; duration?: number; meetUrl?: string; status?: string
     }
+
+    // Auto-generate meeting link if meetUrl is being cleared or not provided
+    let finalMeetUrl = meetUrl
+    if (finalMeetUrl === undefined || finalMeetUrl === null) {
+      finalMeetUrl = existing[0].meet_url
+    }
+    
+    // If meetUrl is explicitly set to empty string and we have session details, generate one
+    if (finalMeetUrl === '' && title && date) {
+      try {
+        const meeting = await createMeetingLink({
+          title: title || existing[0].title,
+          startTime: date ? new Date(date) : existing[0].date,
+          durationMinutes: duration ?? existing[0].duration,
+        })
+        finalMeetUrl = meeting.url
+      } catch (meetingError) {
+        console.error('Failed to auto-generate meeting link:', meetingError)
+      }
+    }
+
     const { rows } = await query<{
       id: string; course_id: string; title: string; date: Date
       duration: number; meet_url: string; status: string; attendees: number
@@ -199,7 +237,7 @@ export async function updateTrainerSession(req: Request, res: Response, next: Ne
         duration = COALESCE($3, duration), meet_url = COALESCE($4, meet_url),
         status = COALESCE($5, status)
        WHERE id = $6 RETURNING *`,
-      [title, date ? new Date(date) : undefined, duration, meetUrl, status, req.params.id]
+      [title, date ? new Date(date) : undefined, duration, finalMeetUrl, status, req.params.id]
     )
     const s = rows[0]
     return ok(res, {
