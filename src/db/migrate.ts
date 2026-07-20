@@ -277,6 +277,269 @@ try {
       );
       CREATE INDEX IF NOT EXISTS idx_password_reset_tokens_token ON password_reset_tokens(token);
       CREATE INDEX IF NOT EXISTS idx_password_reset_tokens_user_id ON password_reset_tokens(user_id);
+
+      -- ─── Phase 1: Essential Features ─────────────────────────────────────
+
+      -- 1. Quiz & Assessment System
+      CREATE TABLE IF NOT EXISTS quizzes (
+        id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        course_id   UUID NOT NULL REFERENCES courses(id) ON DELETE CASCADE,
+        module_id   UUID REFERENCES modules(id) ON DELETE SET NULL,
+        lesson_id   UUID REFERENCES lessons(id) ON DELETE SET NULL,
+        title       VARCHAR(255) NOT NULL,
+        description TEXT,
+        time_limit  INTEGER, -- minutes, NULL means no time limit
+        passing_score NUMERIC(5,2) NOT NULL DEFAULT 70,
+        max_attempts INTEGER DEFAULT 1,
+        shuffle_questions BOOLEAN NOT NULL DEFAULT FALSE,
+        show_results BOOLEAN NOT NULL DEFAULT TRUE,
+        created_by  UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      );
+      CREATE INDEX IF NOT EXISTS idx_quizzes_course_id ON quizzes(course_id);
+
+      -- Quiz Questions
+      CREATE TABLE IF NOT EXISTS quiz_questions (
+        id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        quiz_id       UUID NOT NULL REFERENCES quizzes(id) ON DELETE CASCADE,
+        question_text TEXT NOT NULL,
+        question_type VARCHAR(20) NOT NULL CHECK (question_type IN ('multiple_choice', 'true_false', 'essay', 'fill_blank')),
+        options       JSONB, -- For multiple choice: [{id, text, isCorrect}]
+        correct_answer TEXT, -- For fill_blank or true_false
+        points        NUMERIC(5,2) NOT NULL DEFAULT 1,
+        position      INTEGER NOT NULL DEFAULT 0,
+        created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      );
+      CREATE INDEX IF NOT EXISTS idx_quiz_questions_quiz_id ON quiz_questions(quiz_id);
+
+      -- Quiz Attempts
+      CREATE TABLE IF NOT EXISTS quiz_attempts (
+        id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        quiz_id       UUID NOT NULL REFERENCES quizzes(id) ON DELETE CASCADE,
+        user_id       UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        started_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        completed_at  TIMESTAMPTZ,
+        score         NUMERIC(5,2),
+        passed        BOOLEAN,
+        answers       JSONB, -- Store user answers
+        UNIQUE(quiz_id, user_id, started_at)
+      );
+      CREATE INDEX IF NOT EXISTS idx_quiz_attempts_quiz_user ON quiz_attempts(quiz_id, user_id);
+
+      -- 2. Discussion Forums
+      CREATE TABLE IF NOT EXISTS forum_categories (
+        id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        course_id   UUID REFERENCES courses(id) ON DELETE CASCADE,
+        name        VARCHAR(255) NOT NULL,
+        description TEXT,
+        position    INTEGER NOT NULL DEFAULT 0,
+        created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      );
+      CREATE INDEX IF NOT EXISTS idx_forum_categories_course_id ON forum_categories(course_id);
+
+      CREATE TABLE IF NOT EXISTS forum_threads (
+        id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        category_id   UUID NOT NULL REFERENCES forum_categories(id) ON DELETE CASCADE,
+        user_id       UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        title         VARCHAR(255) NOT NULL,
+        body          TEXT NOT NULL,
+        is_pinned     BOOLEAN NOT NULL DEFAULT FALSE,
+        is_locked     BOOLEAN NOT NULL DEFAULT FALSE,
+        view_count    INTEGER NOT NULL DEFAULT 0,
+        created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      );
+      CREATE INDEX IF NOT EXISTS idx_forum_threads_category_id ON forum_threads(category_id);
+
+      CREATE TABLE IF NOT EXISTS forum_posts (
+        id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        thread_id     UUID NOT NULL REFERENCES forum_threads(id) ON DELETE CASCADE,
+        user_id       UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        body          TEXT NOT NULL,
+        is_solution   BOOLEAN NOT NULL DEFAULT FALSE,
+        created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      );
+      CREATE INDEX IF NOT EXISTS idx_forum_posts_thread_id ON forum_posts(thread_id);
+
+      -- 3. Enhanced Grading Rubrics
+      CREATE TABLE IF NOT EXISTS grading_rubrics (
+        id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        assignment_id UUID NOT NULL REFERENCES assignments(id) ON DELETE CASCADE,
+        criteria_name VARCHAR(255) NOT NULL,
+        description   TEXT,
+        max_score     NUMERIC(5,2) NOT NULL,
+        position      INTEGER NOT NULL DEFAULT 0,
+        created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      );
+      CREATE INDEX IF NOT EXISTS idx_grading_rubrics_assignment_id ON grading_rubrics(assignment_id);
+
+      CREATE TABLE IF NOT EXISTS rubric_scores (
+        id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        rubric_id       UUID NOT NULL REFERENCES grading_rubrics(id) ON DELETE CASCADE,
+        submission_id   UUID NOT NULL REFERENCES submissions(id) ON DELETE CASCADE,
+        score           NUMERIC(5,2) NOT NULL,
+        feedback        TEXT,
+        created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        UNIQUE(rubric_id, submission_id)
+      );
+
+      -- 4. Enhanced Notifications
+      CREATE TABLE IF NOT EXISTS notification_preferences (
+        id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        user_id         UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        email_enabled   BOOLEAN NOT NULL DEFAULT TRUE,
+        push_enabled    BOOLEAN NOT NULL DEFAULT FALSE,
+        digest_frequency VARCHAR(20) NOT NULL DEFAULT 'instant' CHECK (digest_frequency IN ('instant', 'daily', 'weekly', 'never')),
+        created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        UNIQUE(user_id)
+      );
+      CREATE INDEX IF NOT EXISTS idx_notification_prefs_user_id ON notification_preferences(user_id);
+
+      -- Grade Categories for weighted grading
+      CREATE TABLE IF NOT EXISTS grade_categories (
+        id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        course_id     UUID NOT NULL REFERENCES courses(id) ON DELETE CASCADE,
+        name          VARCHAR(255) NOT NULL,
+        weight        NUMERIC(5,2) NOT NULL, -- percentage
+        created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        UNIQUE(course_id, name)
+      );
+      CREATE INDEX IF NOT EXISTS idx_grade_categories_course_id ON grade_categories(course_id);
+
+      -- ─── Phase 2: Medium Priority Features ─────────────────────────────────
+
+      -- 5. Learning Analytics
+      CREATE TABLE IF NOT EXISTS learning_analytics (
+        id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        user_id         UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        course_id       UUID NOT NULL REFERENCES courses(id) ON DELETE CASCADE,
+        lesson_id       UUID REFERENCES lessons(id) ON DELETE SET NULL,
+        time_spent      INTEGER NOT NULL DEFAULT 0, -- seconds
+        interactions    INTEGER NOT NULL DEFAULT 0,
+        last_accessed   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        UNIQUE(user_id, course_id, lesson_id)
+      );
+      CREATE INDEX IF NOT EXISTS idx_learning_analytics_user_course ON learning_analytics(user_id, course_id);
+
+      -- 6. Content Management - Drip Content
+      CREATE TABLE IF NOT EXISTS drip_content_schedule (
+        id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        course_id     UUID NOT NULL REFERENCES courses(id) ON DELETE CASCADE,
+        module_id     UUID REFERENCES modules(id) ON DELETE CASCADE,
+        lesson_id     UUID REFERENCES lessons(id) ON DELETE CASCADE,
+        release_date  TIMESTAMPTZ NOT NULL,
+        created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        UNIQUE(course_id, module_id, lesson_id)
+      );
+
+      -- Course Prerequisites
+      CREATE TABLE IF NOT EXISTS course_prerequisites (
+        id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        course_id       UUID NOT NULL REFERENCES courses(id) ON DELETE CASCADE,
+        prerequisite_id UUID NOT NULL REFERENCES courses(id) ON DELETE CASCADE,
+        created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        UNIQUE(course_id, prerequisite_id)
+      );
+
+      -- Content Versioning
+      CREATE TABLE IF NOT EXISTS content_versions (
+        id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        course_id     UUID NOT NULL REFERENCES courses(id) ON DELETE CASCADE,
+        module_id     UUID REFERENCES modules(id) ON DELETE CASCADE,
+        lesson_id     UUID REFERENCES lessons(id) ON DELETE CASCADE,
+        version       INTEGER NOT NULL DEFAULT 1,
+        content       JSONB NOT NULL,
+        change_notes  TEXT,
+        created_by    UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      );
+      CREATE INDEX IF NOT EXISTS idx_content_versions_course_id ON content_versions(course_id);
+
+      -- 7. Communication Tools - Direct Messages
+      CREATE TABLE IF NOT EXISTS messages (
+        id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        sender_id     UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        receiver_id   UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        subject       VARCHAR(255),
+        body          TEXT NOT NULL,
+        is_read       BOOLEAN NOT NULL DEFAULT FALSE,
+        read_at       TIMESTAMPTZ,
+        created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      );
+      CREATE INDEX IF NOT EXISTS idx_messages_sender_receiver ON messages(sender_id, receiver_id);
+      CREATE INDEX IF NOT EXISTS idx_messages_receiver_read ON messages(receiver_id, is_read);
+
+      -- Group Messages
+      CREATE TABLE IF NOT EXISTS group_conversations (
+        id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        course_id     UUID REFERENCES courses(id) ON DELETE CASCADE,
+        title         VARCHAR(255) NOT NULL,
+        created_by    UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      );
+      CREATE INDEX IF NOT EXISTS idx_group_conversations_course_id ON group_conversations(course_id);
+
+      CREATE TABLE IF NOT EXISTS group_conversation_members (
+        id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        conversation_id   UUID NOT NULL REFERENCES group_conversations(id) ON DELETE CASCADE,
+        user_id           UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        joined_at         TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        UNIQUE(conversation_id, user_id)
+      );
+
+      CREATE TABLE IF NOT EXISTS group_messages (
+        id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        conversation_id UUID NOT NULL REFERENCES group_conversations(id) ON DELETE CASCADE,
+        sender_id       UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        body            TEXT NOT NULL,
+        created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      );
+      CREATE INDEX IF NOT EXISTS idx_group_messages_conversation_id ON group_messages(conversation_id);
+
+      -- 8. Certificate & Badge System
+      CREATE TABLE IF NOT EXISTS badges (
+        id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        name          VARCHAR(255) NOT NULL,
+        description   TEXT NOT NULL,
+        icon_url      VARCHAR(512),
+        criteria      JSONB NOT NULL, -- { type: 'course_completion', value: 100 }
+        created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      );
+
+      CREATE TABLE IF NOT EXISTS user_badges (
+        id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        user_id       UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        badge_id      UUID NOT NULL REFERENCES badges(id) ON DELETE CASCADE,
+        course_id     UUID REFERENCES courses(id) ON DELETE CASCADE,
+        earned_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        UNIQUE(user_id, badge_id, course_id)
+      );
+      CREATE INDEX IF NOT EXISTS idx_user_badges_user_id ON user_badges(user_id);
+
+      -- Certificate Templates
+      CREATE TABLE IF NOT EXISTS certificate_templates (
+        id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        name          VARCHAR(255) NOT NULL,
+        html_template TEXT NOT NULL,
+        css_styles    TEXT,
+        is_default    BOOLEAN NOT NULL DEFAULT FALSE,
+        created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      );
+
+      -- Late Submission Penalties
+      CREATE TABLE IF NOT EXISTS late_submission_penalties (
+        id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        assignment_id     UUID NOT NULL REFERENCES assignments(id) ON DELETE CASCADE,
+        penalty_per_hour  NUMERIC(5,2) NOT NULL DEFAULT 1, -- percentage deduction per hour
+        max_penalty       NUMERIC(5,2) NOT NULL DEFAULT 100, -- maximum percentage deduction
+        grace_period      INTEGER NOT NULL DEFAULT 0, -- minutes
+        created_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        UNIQUE(assignment_id)
+      );
     `);
 
     console.log('Migrations completed successfully!');

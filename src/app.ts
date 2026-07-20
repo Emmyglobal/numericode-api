@@ -15,6 +15,13 @@ import subscriptionsRoutes from './routes/subscriptions.routes'
 import boardsRoutes       from './routes/boards.routes'
 import assessmentsRoutes  from './routes/assessments.routes'
 import certificatesRoutes from './routes/certificates.routes'
+import quizzesRoutes      from './routes/quizzes.routes'
+import forumsRoutes       from './routes/forums.routes'
+import gradingRoutes      from './routes/grading.routes'
+import notificationsEnhancedRoutes from './routes/notifications-enhanced.routes'
+import analyticsRoutes    from './routes/analytics.routes'
+import messagingRoutes    from './routes/messaging.routes'
+import badgesRoutes       from './routes/badges.routes'
 import { errorHandler, notFoundHandler } from './middleware/errorHandler'
 
 export function createApp() {
@@ -57,6 +64,13 @@ app.get('/health', (_req, res) => {
   app.use('/api/boards', boardsRoutes)
   app.use('/api', assessmentsRoutes)
   app.use('/api/certificates', certificatesRoutes)
+  app.use('/api/quizzes', quizzesRoutes)
+  app.use('/api/forums', forumsRoutes)
+  app.use('/api/grading', gradingRoutes)
+  app.use('/api/notifications', notificationsEnhancedRoutes)
+  app.use('/api', analyticsRoutes)
+  app.use('/api', messagingRoutes)
+  app.use('/api', badgesRoutes)
 
   app.use(notFoundHandler)
   app.use(errorHandler)
