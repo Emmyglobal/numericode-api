@@ -104,7 +104,7 @@ export async function register(req: Request, res: Response, next: NextFunction) 
     // 'admin' is deliberately excluded — even if a request is crafted directly against
     // the API (bypassing the frontend UI entirely), this is the enforcement point that
     // prevents self-service privilege escalation. Admin accounts must be created by an
-    // existing admin via PATCH /admin/users/:id, or by the seed script.
+    // existing admin via PATCH /admin/users/:id, or by the seed scripts.
     const allowedSelfServiceRoles = ['student', 'trainer']
     const finalRole = allowedSelfServiceRoles.includes(role ?? '') ? role : 'student'
     const hasGuardianDetails = Boolean(guardianName || guardianPhone || preferredTeacherId || subjects?.length)
