@@ -166,8 +166,8 @@ export async function getTrainerLessons(req: Request, res: Response, next: NextF
 
 export async function createTrainerCourse(req: Request, res: Response, next: NextFunction) {
   try {
-    const { title, description, subject, level, outcomes } = req.body as {
-      title?: string; description?: string; subject?: string; level?: string; outcomes?: string[]
+    const { title, description, content, subject, level, outcomes } = req.body as {
+      title?: string; description?: string; content?: string; subject?: string; level?: string; outcomes?: string[]
     }
     if (!title || !description || !subject || !level) {
       return fail(res, 'Title, description, subject, and level are required', 400)
@@ -176,13 +176,13 @@ export async function createTrainerCourse(req: Request, res: Response, next: Nex
     if (!['beginner', 'intermediate', 'advanced'].includes(level)) return fail(res, 'Invalid level', 400)
 
     const { rows } = await query<CourseRow>(
-      `INSERT INTO courses (title, description, subject, level, instructor_id, status, outcomes)
-       VALUES ($1, $2, $3, $4, $5, 'draft', $6) RETURNING *`,
-      [title, description, subject, level, req.user!.userId, outcomes ?? []]
+      `INSERT INTO courses (title, description, content, subject, level, instructor_id, status, outcomes)
+       VALUES ($1, $2, $3, $4, $5, $6, 'draft', $7) RETURNING *`,
+      [title, description, content ?? '', subject, level, req.user!.userId, outcomes ?? []]
     )
     const c = rows[0]
     return ok(res, {
-      id: c.id, title: c.title, subject: c.subject, level: c.level, status: c.status,
+      id: c.id, title: c.title, content: c.content, subject: c.subject, level: c.level, status: c.status,
       enrolledCount: 0, lessonCount: 0, completionRate: 0, createdAt: c.created_at.toISOString(),
     }, 201)
   } catch (err) { next(err) }
@@ -196,8 +196,8 @@ export async function updateTrainerCourse(req: Request, res: Response, next: Nex
       return forbidden(res, 'You can only edit your own courses')
     }
 
-    const { title, description, subject, level, outcomes } = req.body as {
-      title?: string; description?: string; subject?: string; level?: string; outcomes?: string[]
+    const { title, description, content, subject, level, outcomes } = req.body as {
+      title?: string; description?: string; content?: string; subject?: string; level?: string; outcomes?: string[]
     }
     if (subject && !['mathematics', 'programming'].includes(subject)) return fail(res, 'Invalid subject', 400)
     if (level && !['beginner', 'intermediate', 'advanced'].includes(level)) return fail(res, 'Invalid level', 400)
@@ -205,10 +205,10 @@ export async function updateTrainerCourse(req: Request, res: Response, next: Nex
     const { rows } = await query<CourseRow>(
       `UPDATE courses SET
         title = COALESCE($1, title), description = COALESCE($2, description),
-        subject = COALESCE($3, subject), level = COALESCE($4, level),
-        outcomes = COALESCE($5, outcomes)
-       WHERE id = $6 RETURNING *`,
-      [title, description, subject, level, outcomes, req.params.id]
+        content = COALESCE($3, content), subject = COALESCE($4, subject),
+        level = COALESCE($5, level), outcomes = COALESCE($6, outcomes)
+       WHERE id = $7 RETURNING *`,
+      [title, description, content, subject, level, outcomes, req.params.id]
     )
     const c = rows[0]
     return ok(res, { id: c.id, title: c.title, subject: c.subject, level: c.level, status: c.status })

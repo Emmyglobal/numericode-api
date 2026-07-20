@@ -17,7 +17,7 @@ export interface UserRow {
   role: UserRole; status: UserStatus; bio: string; avatar_url: string | null; created_at: Date; last_active: Date
 }
 export interface CourseRow {
-  id: string; title: string; description: string; subject: Subject
+  id: string; title: string; description: string; content: string; subject: Subject
   level: Level; instructor_id: string; status: CourseStatus
   lesson_count: number; outcomes: string[]; thumbnail_url: string | null
   access_level: CourseAccessLevel; price_cents: number; currency: string; premium_enabled: boolean
