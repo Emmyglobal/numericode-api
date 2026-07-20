@@ -15,8 +15,49 @@ function toAuthUser(row: UserRow): AuthUser {
   }
 }
 
-/** Simple email format validation */
+/** Comprehensive email validation */
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+
+// Disposable email domains (partial list - expand as needed)
+const DISPOSABLE_EMAIL_DOMAINS = [
+  'tempmail.com', 'guerrillamail.com', 'mailinator.com', '10minutemail.com',
+  'throwaway.email', 'fakeinbox.com', 'temp-mail.org', 'dispostable.com'
+]
+
+function validateEmail(email: string): { valid: boolean; reason?: string } {
+  // Basic format check
+  if (!EMAIL_REGEX.test(email)) {
+    return { valid: false, reason: 'Invalid email format' }
+  }
+
+  const domain = email.split('@')[1]?.toLowerCase()
+  if (!domain) {
+    return { valid: false, reason: 'Invalid email domain' }
+  }
+
+  // Check for disposable email
+  if (DISPOSABLE_EMAIL_DOMAINS.some(d => domain.includes(d))) {
+    return { valid: false, reason: 'Disposable email addresses are not allowed' }
+  }
+
+  // Check for common typos in popular domains
+  const commonDomains = ['gmail.com', 'yahoo.com', 'hotmail.com', 'outlook.com', 'icloud.com']
+  const typoDomains: Record<string, string> = {
+    'gmial.com': 'gmail.com',
+    'gmal.com': 'gmail.com',
+    'gmail.co': 'gmail.com',
+    'yahooo.com': 'yahoo.com',
+    'hotmal.com': 'hotmail.com',
+    'hotmai.com': 'hotmail.com',
+    'outloo.com': 'outlook.com',
+  }
+
+  if (typoDomains[domain]) {
+    return { valid: false, reason: `Did you mean ${typoDomains[domain]}?` }
+  }
+
+  return { valid: true }
+}
 
 export async function login(req: Request, res: Response, next: NextFunction) {
   try {
@@ -33,7 +74,7 @@ export async function login(req: Request, res: Response, next: NextFunction) {
 
     if (user.status === 'suspended') return unauthorized(res, 'This account has been suspended')
     if (user.status === 'pending') {
-      return unauthorized(res, 'Your trainer account is awaiting admin approval. You will be able to log in once approved.')
+      return unauthorized(res, 'Your account is awaiting admin approval. You will receive an email once your account is approved.')
     }
 
     await query('UPDATE users SET last_active = NOW() WHERE id = $1', [user.id])
@@ -52,8 +93,9 @@ export async function register(req: Request, res: Response, next: NextFunction) 
     if (!name || !email || !password) return fail(res, 'Name, email, and password are required', 400)
 
     // ── Email validation (compulsory) ──────────────────────────
-    if (!EMAIL_REGEX.test(email)) {
-      return fail(res, 'Enter a valid email address', 400)
+    const emailValidation = validateEmail(email)
+    if (!emailValidation.valid) {
+      return fail(res, emailValidation.reason || 'Invalid email address', 400)
     }
 
     if (password.length < 8) return fail(res, 'Password must be at least 8 characters', 400)
@@ -76,8 +118,9 @@ export async function register(req: Request, res: Response, next: NextFunction) 
       }
     }
 
-    // Trainers require admin approval before they can log in. Students are active immediately.
-    const initialStatus = finalRole === 'trainer' ? 'pending' : 'active'
+    // All new users require admin approval before they can access the dashboard
+    // This ensures proper verification and prevents spam accounts
+    const initialStatus = 'pending'
 
     const { rows: existing } = await query('SELECT id FROM users WHERE email = $1', [email])
     if (existing.length > 0) return fail(res, 'An account with this email already exists', 409)
@@ -143,18 +186,20 @@ export async function register(req: Request, res: Response, next: NextFunction) 
       client.release()
     }
 
-    if (finalRole === 'trainer') {
-      // Notify every admin so approval isn't missed. Do not block the response on this.
-      await notifyRole(
-        'admin',
-        'New trainer awaiting approval',
-        `${user.name} (${user.email}) registered as a trainer and needs approval before they can log in.`,
-        'trainer_approval',
-        '/admin/users'
-      ).catch(() => {})
-      // Trainer is pending — do not issue a login token yet.
-      return ok(res, { pendingApproval: true, message: 'Your trainer account has been created and is awaiting admin approval.' }, 201)
-    }
+    // Notify admins about new user registration
+    await notifyRole(
+      'admin',
+      'New user awaiting approval',
+      `${user.name} (${user.email}) registered as a ${finalRole} and needs approval before they can access the platform.`,
+      'announcement',
+      '/admin/users'
+    ).catch(() => {})
+
+    // User is pending — do not issue a login token yet
+    return ok(res, { 
+      pendingApproval: true, 
+      message: 'Your account has been created and is awaiting admin approval. You will receive an email once approved.' 
+    }, 201)
 
     // ── Send welcome email (do not block response) ─────────────
     sendWelcomeEmail({ name: user.name, email: user.email, role: user.role }).catch(() => {})
