@@ -250,6 +250,21 @@ try {
       );
       CREATE INDEX IF NOT EXISTS idx_certificates_user_id ON certificates(user_id);
       CREATE INDEX IF NOT EXISTS idx_certificates_certificate_code ON certificates(certificate_code);
+
+      -- Course notes (for trainers/admins to add notes/content to courses)
+      CREATE TABLE IF NOT EXISTS course_notes (
+        id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        course_id  UUID NOT NULL REFERENCES courses(id) ON DELETE CASCADE,
+        lesson_id  UUID REFERENCES lessons(id) ON DELETE CASCADE,
+        title      VARCHAR(255) NOT NULL,
+        content    TEXT NOT NULL DEFAULT '',
+        created_by UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        is_published BOOLEAN NOT NULL DEFAULT TRUE,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      );
+      CREATE INDEX IF NOT EXISTS idx_course_notes_course_id ON course_notes(course_id);
+      CREATE INDEX IF NOT EXISTS idx_course_notes_lesson_id ON course_notes(lesson_id);
     `);
 
     console.log('Migrations completed successfully!');
