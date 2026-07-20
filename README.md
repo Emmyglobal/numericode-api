@@ -67,22 +67,31 @@ src/
 ├── index.ts             # Server entry point (calls app.listen)
 ├── db/
 │   ├── pool.ts           # PostgreSQL connection pool + query() helper
-│   ├── migrate.ts        # Creates all 13 tables, indexes, constraints
+│   ├── migrate.ts        # Creates all 30+ tables, indexes, constraints
 │   └── seed.ts           # Seeds demo users, courses, enrollments, assignments
 ├── middleware/
 │   ├── auth.ts           # requireAuth (JWT verify) + requireRole (RBAC)
 │   └── errorHandler.ts   # Centralised error + 404 handling
 ├── controllers/
-│   ├── auth.controller.ts       # login, register, forgotPassword
-│   ├── courses.controller.ts    # public course catalogue
-│   ├── dashboard.controller.ts  # 8 student portal endpoints
-│   ├── trainer.controller.ts    # 5 trainer portal endpoints
-│   └── admin.controller.ts      # 6 admin panel endpoints
+│   ├── auth.controller.ts           # login, register, forgotPassword, changePassword
+│   ├── courses.controller.ts        # public course catalogue
+│   ├── dashboard.controller.ts      # 8 student portal endpoints
+│   ├── trainer.controller.ts        # 5 trainer portal endpoints
+│   ├── admin.controller.ts          # 6 admin panel endpoints
+│   ├── quizzes.controller.ts        # Quiz & assessment system
+│   ├── forums.controller.ts         # Discussion forums
+│   ├── grading.controller.ts        # Advanced grading (rubrics, categories, export)
+│   ├── notifications-enhanced.controller.ts  # Email digests, push notifications, targeting
+│   ├── analytics.controller.ts      # Learning analytics, drip content, prerequisites
+│   ├── messaging.controller.ts      # Direct & group messaging
+│   └── badges.controller.ts         # Badges, certificates, late penalties
 ├── routes/               # Express routers — one per domain
 ├── types/                # Shared TypeScript types (DB rows + API shapes)
 ├── utils/
 │   ├── jwt.ts             # signToken / verifyToken
-│   └── response.ts        # ok(), fail(), notFound(), unauthorized(), forbidden()
+│   ├── response.ts        # ok(), fail(), notFound(), unauthorized(), forbidden()
+│   ├── mailer.ts          # Email sending (welcome, password reset, digests)
+│   └── notify.ts          # In-app notification system
 └── test/                 # 55 tests — auth, courses, RBAC, dashboard, trainer, admin
 ```
 
@@ -90,9 +99,16 @@ src/
 
 ## Database Schema
 
-13 tables with foreign key constraints and indexes:
+30+ tables with foreign key constraints and indexes:
 
+### Core Tables
 `users` · `courses` · `modules` · `lessons` · `resources` · `live_classes` · `enrollments` · `lesson_completions` · `assignments` · `submissions` · `announcements` · `announcement_reads`
+
+### Phase 1 - Essential Features
+`quizzes` · `quiz_attempts` · `forum_categories` · `forum_threads` · `forum_posts` · `grading_rubrics` · `rubric_scores` · `grade_categories` · `notifications` · `notification_preferences`
+
+### Phase 2 - Medium Priority
+`learning_analytics` · `drip_content_schedule` · `course_prerequisites` · `content_versions` · `messages` · `group_conversations` · `group_conversation_members` · `group_messages` · `badges` · `user_badges` · `certificate_templates` · `late_submission_penalties`
 
 Every table uses `gen_random_uuid()` for primary keys (via the `pgcrypto` extension, auto-enabled in migrations).
 
@@ -105,6 +121,18 @@ Every table uses `gen_random_uuid()` for primary keys (via the `pgcrypto` extens
 - **Header format:** `Authorization: Bearer <token>`
 - **Role guard:** `requireRole('student')` / `requireRole('trainer')` / `requireRole('admin')` — applied per-route (not via `router.use()`, to avoid intercepting unmatched paths before the 404 handler)
 
+### Email Validation & Admin Approval
+
+- **Compulsory email validation** for all registrations:
+  - Format validation (regex)
+  - Disposable email detection (blocks 8+ disposable email domains)
+  - Typo detection with suggestions (e.g., "gmial.com" → "gmail.com")
+- **Admin approval required for ALL users** (students AND trainers)
+  - New users get 'pending' status
+  - Cannot access dashboard until approved
+  - Admins receive notification for each new registration
+  - Users see pending approval page with instructions
+
 ### RBAC Matrix (verified by 14 automated tests)
 
 | Route prefix | Required role | Wrong role response |
@@ -114,6 +142,7 @@ Every table uses `gen_random_uuid()` for primary keys (via the `pgcrypto` extens
 | `/api/admin/*` | `admin` | `403 Forbidden` |
 | Any protected route, no token | — | `401 Unauthorized` |
 | Any protected route, malformed token | — | `401 Unauthorized` |
+| Pending user login attempt | — | `401 Unauthorized` (approval message) |
 
 ---
 
@@ -128,12 +157,40 @@ Tests run against a **real PostgreSQL database** (not mocked) — every query, j
 
 | Test file | Tests | Covers |
 |---|---|---|
-| `auth.test.ts` | 13 | Login (all 3 roles), register, validation, suspended account, wrong password |
+| `auth.test.ts` | 13 | Login (all 3 roles), register, validation, suspended account, wrong password, pending approval |
 | `rbac.test.ts` | 14 | Every role × every route combination — no token, malformed token, wrong role, correct role |
 | `courses.test.ts` | 9 | List, filter by subject, search, single course, 404 |
 | `dashboard.test.ts` | 7 | All 8 student endpoints, profile update |
 | `trainer.test.ts` | 5 | All 5 trainer endpoints |
 | `admin.test.ts` | 7 | All 6 admin endpoints, user status update, announcement creation |
+
+## API Endpoints
+
+### Authentication
+- `POST /api/auth/register` - Register new user (requires admin approval)
+- `POST /api/auth/login` - Login (checks approval status)
+- `POST /api/auth/forgot-password` - Request password reset
+- `POST /api/auth/reset-password` - Reset password with token
+- `POST /api/auth/change-password` - Change password (authenticated)
+
+### Phase 1 - Essential Features
+- **Quizzes & Assessments:** CRUD for quizzes, attempts, questions
+- **Discussion Forums:** Categories, threads, posts, search
+- **Advanced Grading:** Rubrics, rubric scores, grade categories, grade calculation
+- **Notifications:** In-app notifications, preferences, history
+
+### Phase 2 - Medium Priority
+- **Learning Analytics:** Track time spent, interactions, engagement reports
+- **Content Management:** Drip content scheduling, course prerequisites, content versioning
+- **Communication Tools:** Direct messaging, group conversations
+- **Certificate & Badge System:** Badges, user badges, certificate templates, late submission penalties
+
+### Phase 3 - Advanced Features
+- **Grade Export:** Export grades to CSV/PDF
+- **Grade Visibility Controls:** Show/hide grades and rankings
+- **Email Digests:** Daily/weekly notification summaries
+- **Push Notifications:** Mobile push notification support
+- **Announcement Targeting:** Target by role, course, or all users
 
 ---
 
@@ -189,3 +246,39 @@ That's it — no other frontend code changes required. The Axios instance, all s
 
 ## Prepared by
 Nwafor Ugochukwu Emmanuel — Phase 10 Backend Integration — July 2026
+
+## Latest Updates (Phase 11 - July 2026)
+
+### Email Validation & Admin Approval
+- ✅ Compulsory email validation (format, disposable emails, typo detection)
+- ✅ Admin approval required for ALL new users (students AND trainers)
+- ✅ Pending status prevents dashboard access
+- ✅ Pending approval page with email instructions
+- ✅ Admin notifications for new registrations
+
+### Advanced Grading System
+- ✅ Rubric-based grading with multiple criteria
+- ✅ Weighted grade categories (quizzes, assignments, participation)
+- ✅ Automated grade calculation with letter grades
+- ✅ Grade export to CSV/PDF
+- ✅ Student grade visibility controls
+
+### Enhanced Notification System
+- ✅ Real-time in-app notifications
+- ✅ Email digests (daily/weekly summaries)
+- ✅ Push notification support (ready for FCM/OneSignal)
+- ✅ Customizable notification preferences
+- ✅ Announcement targeting by role/course
+
+### Learning Analytics & Communication
+- ✅ Learning analytics (time spent, interactions, engagement)
+- ✅ Drip content scheduling
+- ✅ Course prerequisites
+- ✅ Direct messaging between users
+- ✅ Group conversations for course cohorts
+
+### Certificate & Badge System
+- ✅ Badge management and awarding
+- ✅ User badge tracking
+- ✅ Certificate template management
+- ✅ Late submission penalty configuration
