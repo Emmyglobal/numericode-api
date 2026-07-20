@@ -1,9 +1,11 @@
 import type { Request, Response, NextFunction } from 'express'
 import bcrypt from 'bcryptjs'
+import crypto from 'crypto'
 import { getClient, query } from '../db/pool'
 import { signToken } from '../utils/jwt'
 import { ok, fail, unauthorized } from '../utils/response'
 import { notifyRole } from '../utils/notify'
+import { sendWelcomeEmail, sendPasswordResetEmail } from '../utils/mailer'
 import type { UserRow, AuthUser } from '../types'
 
 function toAuthUser(row: UserRow): AuthUser {
@@ -13,10 +15,14 @@ function toAuthUser(row: UserRow): AuthUser {
   }
 }
 
+/** Simple email format validation */
+const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+
 export async function login(req: Request, res: Response, next: NextFunction) {
   try {
     const { email, password } = req.body as { email?: string; password?: string }
     if (!email || !password) return fail(res, 'Email and password required', 400)
+    if (!EMAIL_REGEX.test(email)) return fail(res, 'Enter a valid email address', 400)
 
     const { rows } = await query<UserRow>('SELECT * FROM users WHERE email = $1', [email])
     const user = rows[0]
@@ -44,6 +50,12 @@ export async function register(req: Request, res: Response, next: NextFunction) 
       preferredTeacherId?: string; subjects?: string[]
     }
     if (!name || !email || !password) return fail(res, 'Name, email, and password are required', 400)
+
+    // ── Email validation (compulsory) ──────────────────────────
+    if (!EMAIL_REGEX.test(email)) {
+      return fail(res, 'Enter a valid email address', 400)
+    }
+
     if (password.length < 8) return fail(res, 'Password must be at least 8 characters', 400)
 
     // Security: public registration may only create 'student' or 'trainer' accounts.
@@ -139,19 +151,142 @@ export async function register(req: Request, res: Response, next: NextFunction) 
         `${user.name} (${user.email}) registered as a trainer and needs approval before they can log in.`,
         'trainer_approval',
         '/admin/users'
-      )
+      ).catch(() => {})
       // Trainer is pending — do not issue a login token yet.
       return ok(res, { pendingApproval: true, message: 'Your trainer account has been created and is awaiting admin approval.' }, 201)
     }
+
+    // ── Send welcome email (do not block response) ─────────────
+    sendWelcomeEmail({ name: user.name, email: user.email, role: user.role }).catch(() => {})
 
     const token = signToken(user.id, user.role)
     return ok(res, { user: toAuthUser(user), token }, 201)
   } catch (err) { next(err) }
 }
 
-export async function forgotPassword(_req: Request, res: Response, next: NextFunction) {
+export async function forgotPassword(req: Request, res: Response, next: NextFunction) {
   try {
-    // Always return success regardless of whether the email exists (security best practice)
-    return ok(res, null, 200)
+    const { email } = req.body as { email?: string }
+    if (!email) return fail(res, 'Email is required', 400)
+
+    // Always return the same response whether the email exists or not (security best practice)
+    const { rows } = await query<UserRow>('SELECT id, name, email FROM users WHERE email = $1', [email])
+
+    if (rows.length > 0) {
+      const user = rows[0]
+
+      // Generate a secure random token
+      const resetToken = crypto.randomBytes(32).toString('hex')
+      const tokenHash = crypto.createHash('sha256').update(resetToken).digest('hex')
+      const expiresAt = new Date(Date.now() + 60 * 60 * 1000) // 1 hour
+
+      // Invalidate any previous reset tokens for this user
+      await query(
+        `INSERT INTO password_reset_tokens (user_id, token, expires_at)
+         VALUES ($1, $2, $3)`,
+        [user.id, tokenHash, expiresAt]
+      )
+
+      // Send email (non-blocking)
+      sendPasswordResetEmail(user.email, user.name, resetToken).catch(() => {})
+    }
+
+    return ok(res, { message: 'If an account with that email exists, a password reset link has been sent.' }, 200)
+  } catch (err) { next(err) }
+}
+
+export async function resetPassword(req: Request, res: Response, next: NextFunction) {
+  try {
+    const { token, password } = req.body as { token?: string; password?: string }
+
+    if (!token || !password) {
+      return fail(res, 'Token and new password are required', 400)
+    }
+
+    if (password.length < 8) {
+      return fail(res, 'Password must be at least 8 characters', 400)
+    }
+
+    const tokenHash = crypto.createHash('sha256').update(token).digest('hex')
+
+    const { rows } = await query<{ user_id: string; expires_at: Date; used: boolean }>(
+      `SELECT user_id, expires_at, used FROM password_reset_tokens
+       WHERE token = $1 AND used = FALSE AND expires_at > NOW()
+       ORDER BY created_at DESC LIMIT 1`,
+      [tokenHash]
+    )
+
+    if (rows.length === 0) {
+      return fail(res, 'Invalid or expired reset token', 400)
+    }
+
+    const resetRecord = rows[0]
+
+    // Hash the new password
+    const passwordHash = await bcrypt.hash(password, 10)
+
+    // Update password and mark token as used in a transaction
+    const client = await getClient()
+    try {
+      await client.query('BEGIN')
+
+      await client.query(
+        'UPDATE users SET password_hash = $1 WHERE id = $2',
+        [passwordHash, resetRecord.user_id]
+      )
+
+      await client.query(
+        'UPDATE password_reset_tokens SET used = TRUE WHERE token = $1',
+        [tokenHash]
+      )
+
+      await client.query('COMMIT')
+    } catch (err) {
+      await client.query('ROLLBACK')
+      throw err
+    } finally {
+      client.release()
+    }
+
+    return ok(res, { message: 'Password has been reset successfully. You can now log in with your new password.' }, 200)
+  } catch (err) { next(err) }
+}
+
+export async function changePassword(req: Request, res: Response, next: NextFunction) {
+  try {
+    const { currentPassword, newPassword } = req.body as { currentPassword?: string; newPassword?: string }
+
+    if (!currentPassword || !newPassword) {
+      return fail(res, 'Current password and new password are required', 400)
+    }
+
+    if (newPassword.length < 8) {
+      return fail(res, 'New password must be at least 8 characters', 400)
+    }
+
+    if (!req.user?.userId) {
+      return unauthorized(res)
+    }
+
+    // Verify current password
+    const { rows } = await query<UserRow>(
+      'SELECT password_hash FROM users WHERE id = $1',
+      [req.user.userId]
+    )
+
+    if (rows.length === 0) {
+      return unauthorized(res)
+    }
+
+    const validPassword = await bcrypt.compare(currentPassword, rows[0].password_hash)
+    if (!validPassword) {
+      return fail(res, 'Current password is incorrect', 400)
+    }
+
+    // Hash and update
+    const passwordHash = await bcrypt.hash(newPassword, 10)
+    await query('UPDATE users SET password_hash = $1 WHERE id = $2', [passwordHash, req.user.userId])
+
+    return ok(res, { message: 'Password changed successfully' }, 200)
   } catch (err) { next(err) }
 }

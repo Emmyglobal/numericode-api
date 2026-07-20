@@ -3,6 +3,9 @@ import { verifyToken } from '../utils/jwt'
 import { unauthorized, forbidden } from '../utils/response'
 import type { UserRole } from '../types'
 
+/** Alias for requireAuth — used in routes */
+export const authenticate = requireAuth
+
 /** Verifies the Bearer token and attaches the decoded payload to req.user */
 export function requireAuth(req: Request, res: Response, next: NextFunction) {
   const header = req.headers.authorization
