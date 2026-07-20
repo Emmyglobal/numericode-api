@@ -1,7 +1,6 @@
 import type { Request, Response, NextFunction } from 'express'
 import { query } from '../db/pool'
 import { ok, fail, notFound, forbidden } from '../utils/response'
-import { createObjectCsvWriter } from 'csv-writer'
 
 interface RubricRow {
   id: string; assignment_id: string; criteria_name: string; description: string | null
@@ -14,6 +13,11 @@ interface RubricScoreRow {
 
 interface GradeCategoryRow {
   id: string; course_id: string; name: string; weight: number; created_at: Date
+}
+
+interface StudentGradeRow {
+  id: string; name: string; email: string
+  assignments_graded: string; average_score: number | null
 }
 
 // ─── Grading Rubrics ─────────────────────────────────────────────────────────
@@ -299,7 +303,7 @@ export async function exportGradesCSV(req: Request, res: Response, next: NextFun
     if (!course) return fail(res, 'Unauthorized', 403)
 
     // Get all students with their grades
-    const { rows: students } = await query(
+    const { rows: students } = await query<StudentGradeRow>(
       `SELECT u.id, u.name, u.email,
         COUNT(DISTINCT s.assignment_id) as assignments_graded,
         AVG(s.score) as average_score
@@ -312,30 +316,18 @@ export async function exportGradesCSV(req: Request, res: Response, next: NextFun
       [courseId]
     )
 
-    const csvData = students.map(s => ({
-      StudentID: s.id,
-      Name: s.name,
-      Email: s.email,
-      AssignmentsGraded: Number(s.assignments_graded),
-      AverageScore: s.average_score ? Number(s.average_score).toFixed(2) : 'N/A',
-    }))
-
-    const csvWriter = createObjectCsvWriter({
-      path: `grades_${courseId}_${Date.now()}.csv`,
-      header: [
-        { id: 'StudentID', title: 'Student ID' },
-        { id: 'Name', title: 'Name' },
-        { id: 'Email', title: 'Email' },
-        { id: 'AssignmentsGraded', title: 'Assignments Graded' },
-        { id: 'AverageScore', title: 'Average Score' },
-      ],
-    })
-
-    await csvWriter.writeRecords(csvData)
+    // Generate CSV manually
+    const csvRows = [
+      'Student ID,Name,Email,Assignments Graded,Average Score',
+      ...students.map(s => 
+        `${s.id},"${s.name.replace(/"/g, '""')}","${s.email.replace(/"/g, '""')}",${Number(s.assignments_graded)},${s.average_score ? Number(s.average_score).toFixed(2) : 'N/A'}`
+      )
+    ]
+    const csv = csvRows.join('\n')
 
     res.setHeader('Content-Type', 'text/csv')
     res.setHeader('Content-Disposition', `attachment; filename=grades_${courseId}.csv`)
-    res.send(csvData)
+    res.send(csv)
   } catch (err) { next(err) }
 }
 

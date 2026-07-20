@@ -31,6 +31,20 @@ interface WelcomeMailInput {
   role: string
 }
 
+/** Generic email sender for notifications and digests */
+export async function sendEmail(input: { to: string; subject: string; html: string }) {
+  if (!process.env.SMTP_USER || !process.env.SMTP_PASS) {
+    throw new Error('Email is not configured on the server. Set SMTP_USER and SMTP_PASS.')
+  }
+
+  await transporter.sendMail({
+    from: `"${FROM_NAME}" <${FROM_ADDRESS}>`,
+    to: input.to,
+    subject: input.subject,
+    html: input.html,
+  })
+}
+
 /** Sends a contact form submission to the platform's contact inbox. */
 export async function sendContactEmail(input: ContactMailInput) {
   if (!process.env.SMTP_USER || !process.env.SMTP_PASS) {
