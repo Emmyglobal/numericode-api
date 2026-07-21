@@ -86,7 +86,10 @@ export async function updateUser(req: Request, res: Response, next: NextFunction
       )
 
       // Send activation email (non-blocking — don't let email failures break approval)
-      sendActivationEmail(u.email, u.name, u.role, activationToken).catch(() => {})
+      console.log('Sending activation email to:', u.email)
+      sendActivationEmail(u.email, u.name, u.role, activationToken).catch(err => {
+        console.error('Activation email error:', err)
+      })
 
       // In-app notification
       await notifyUser(u.id, `Your ${u.role} account was approved!`,
