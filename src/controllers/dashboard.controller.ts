@@ -78,9 +78,11 @@ export async function getOverview(req: Request, res: Response, next: NextFunctio
 
 export async function getMyCourses(req: Request, res: Response, next: NextFunction) {
   try {
-    const { rows } = await query<CourseRow & { progress: number; enrolled_at: Date }>(
-      `SELECT c.*, e.progress, e.enrolled_at
-       FROM courses c JOIN enrollments e ON e.course_id = c.id
+    const { rows } = await query<CourseRow & { progress: number; enrolled_at: Date; instructor_name: string; instructor_bio: string }>(
+      `SELECT c.*, e.progress, e.enrolled_at, u.name AS instructor_name, u.bio AS instructor_bio
+       FROM courses c
+       JOIN enrollments e ON e.course_id = c.id
+       JOIN users u ON u.id = c.instructor_id
        WHERE e.user_id = $1`,
       [req.user!.userId]
     )
@@ -88,6 +90,7 @@ export async function getMyCourses(req: Request, res: Response, next: NextFuncti
       id: c.id, title: c.title, description: c.description, subject: c.subject,
       level: c.level, lessonCount: c.lesson_count, progress: c.progress,
       accessLevel: c.access_level, priceCents: c.price_cents, currency: c.currency,
+      instructor: { id: c.instructor_id, name: c.instructor_name, bio: c.instructor_bio },
       enrolledAt: c.enrolled_at.toISOString(), createdAt: c.created_at.toISOString(),
     })))
   } catch (err) { next(err) }

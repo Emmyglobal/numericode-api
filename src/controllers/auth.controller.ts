@@ -5,7 +5,7 @@ import { getClient, query } from '../db/pool'
 import { signToken } from '../utils/jwt'
 import { ok, fail, unauthorized } from '../utils/response'
 import { notifyRole } from '../utils/notify'
-import { sendWelcomeEmail, sendPasswordResetEmail } from '../utils/mailer'
+import { sendPasswordResetEmail } from '../utils/mailer'
 import type { UserRow, AuthUser } from '../types'
 
 function toAuthUser(row: UserRow): AuthUser {
@@ -15,8 +15,8 @@ function toAuthUser(row: UserRow): AuthUser {
   }
 }
 
-/** Comprehensive email validation */
-const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+/** Comprehensive email validation — rejects consecutive dots, leading/trailing dots, and missing TLD */
+const EMAIL_REGEX = /^(?!.*\.\.)(?!\.)[^\s@]+(?<!\.)@(?!\.)[^\s@]+(?<!\.)\.[a-zA-Z]{2,}$/
 
 // Disposable email domains (partial list - expand as needed)
 const DISPOSABLE_EMAIL_DOMAINS = [
@@ -75,6 +75,9 @@ export async function login(req: Request, res: Response, next: NextFunction) {
     if (user.status === 'suspended') return unauthorized(res, 'This account has been suspended')
     if (user.status === 'pending') {
       return unauthorized(res, 'Your account is awaiting admin approval. You will receive an email once your account is approved.')
+    }
+    if (user.status === 'active' && !user.account_activated) {
+      return unauthorized(res, 'Your account has been approved but not yet activated. Please check your email for the activation link.')
     }
 
     await query('UPDATE users SET last_active = NOW() WHERE id = $1', [user.id])
@@ -201,11 +204,6 @@ export async function register(req: Request, res: Response, next: NextFunction) 
       message: 'Your account has been created and is awaiting admin approval. You will receive an email once approved.' 
     }, 201)
 
-    // ── Send welcome email (do not block response) ─────────────
-    sendWelcomeEmail({ name: user.name, email: user.email, role: user.role }).catch(() => {})
-
-    const token = signToken(user.id, user.role)
-    return ok(res, { user: toAuthUser(user), token }, 201)
   } catch (err) { next(err) }
 }
 
@@ -294,6 +292,54 @@ export async function resetPassword(req: Request, res: Response, next: NextFunct
     }
 
     return ok(res, { message: 'Password has been reset successfully. You can now log in with your new password.' }, 200)
+  } catch (err) { next(err) }
+}
+
+export async function activateAccount(req: Request, res: Response, next: NextFunction) {
+  try {
+    const { token } = req.body as { token?: string }
+    if (!token) return fail(res, 'Activation token is required', 400)
+
+    const tokenHash = crypto.createHash('sha256').update(token).digest('hex')
+
+    const { rows: tokenRows } = await query<{ user_id: string; expires_at: Date; used: boolean }>(
+      `SELECT user_id, expires_at, used FROM activation_tokens
+       WHERE token = $1 AND used = FALSE AND expires_at > NOW()
+       ORDER BY created_at DESC LIMIT 1`,
+      [tokenHash]
+    )
+
+    if (tokenRows.length === 0) {
+      return fail(res, 'Invalid or expired activation token', 400)
+    }
+
+    const activationRecord = tokenRows[0]
+
+    const client = await getClient()
+    try {
+      await client.query('BEGIN')
+
+      // Set account_activated = true
+      await client.query(
+        'UPDATE users SET account_activated = TRUE WHERE id = $1',
+        [activationRecord.user_id]
+      )
+
+      // Mark token as used
+      await client.query(
+        'UPDATE activation_tokens SET used = TRUE WHERE token = $1',
+        [tokenHash]
+      )
+
+      await client.query('COMMIT')
+    } catch (err) {
+      await client.query('ROLLBACK')
+      throw err
+    } finally {
+      client.release()
+    }
+
+    return ok(res, { message: 'Account activated successfully. You can now log in.' }, 200)
   } catch (err) { next(err) }
 }
 

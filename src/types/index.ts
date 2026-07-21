@@ -14,7 +14,7 @@ export type AnnouncementAudience = 'all' | 'students' | 'trainers'
 // ─── DB row shapes (snake_case matches PostgreSQL) ────────────────────────────
 export interface UserRow {
   id: string; name: string; email: string; password_hash: string
-  role: UserRole; status: UserStatus; bio: string; avatar_url: string | null; created_at: Date; last_active: Date
+  role: UserRole; status: UserStatus; bio: string; avatar_url: string | null; created_at: Date; last_active: Date; account_activated: boolean
 }
 export interface CourseRow {
   id: string; title: string; description: string; content: string; subject: Subject

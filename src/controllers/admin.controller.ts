@@ -1,7 +1,9 @@
 import type { Request, Response, NextFunction } from 'express'
-import { query } from '../db/pool'
+import crypto from 'crypto'
+import { query, getClient } from '../db/pool'
 import { ok, fail, notFound } from '../utils/response'
 import { notifyUser, notifyAudience } from '../utils/notify'
+import { sendActivationEmail } from '../utils/mailer'
 import type { UserRow, CourseRow, AnnouncementRow } from '../types'
 
 export async function getStats(_req: Request, res: Response, next: NextFunction) {
@@ -70,18 +72,31 @@ export async function updateUser(req: Request, res: Response, next: NextFunction
     )
     const u = rows[0]
 
-    // Notify the trainer when their approval status actually changes
-    if (before.role === 'trainer' && status && status !== before.status) {
-      if (status === 'active' && before.status === 'pending') {
-        await notifyUser(u.id, 'Your trainer account was approved!',
-          'You can now log in and start creating courses.', 'trainer_status', '/trainer')
-      } else if (status === 'suspended') {
-        await notifyUser(u.id, 'Your trainer account was suspended',
-          'Contact platform support if you believe this is a mistake.', 'trainer_status')
-      } else if (status === 'active' && before.status === 'suspended') {
-        await notifyUser(u.id, 'Your trainer account was reactivated',
-          'You can now log in again.', 'trainer_status', '/trainer')
-      }
+    // When a user transitions from pending → active, generate activation token and send email
+    if (status === 'active' && before.status === 'pending') {
+      // Generate a secure activation token (expires in 7 days)
+      const activationToken = crypto.randomBytes(32).toString('hex')
+      const tokenHash = crypto.createHash('sha256').update(activationToken).digest('hex')
+      const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000) // 7 days
+
+      await query(
+        `INSERT INTO activation_tokens (user_id, token, expires_at)
+         VALUES ($1, $2, $3)`,
+        [u.id, tokenHash, expiresAt]
+      )
+
+      // Send activation email (non-blocking — don't let email failures break approval)
+      sendActivationEmail(u.email, u.name, u.role, activationToken).catch(() => {})
+
+      // In-app notification
+      await notifyUser(u.id, `Your ${u.role} account was approved!`,
+        'Please check your email and click the activation link to access your dashboard.', 'general')
+    } else if (status === 'suspended' && before.status !== 'suspended') {
+      await notifyUser(u.id, 'Your account was suspended',
+        'Contact platform support if you believe this is a mistake.', 'general')
+    } else if (status === 'active' && before.status === 'suspended') {
+      await notifyUser(u.id, 'Your account was reactivated',
+        'You can now log in again.', 'general', u.role === 'trainer' ? '/trainer' : '/dashboard')
     }
 
     return ok(res, {

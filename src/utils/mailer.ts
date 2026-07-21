@@ -110,6 +110,46 @@ export async function sendWelcomeEmail(input: WelcomeMailInput) {
   })
 }
 
+/** Sends an account activation email with a link the user must click before accessing the dashboard. */
+export async function sendActivationEmail(email: string, name: string, role: string, activationToken: string) {
+  if (!process.env.SMTP_USER || !process.env.SMTP_PASS) return // silently skip if email not configured
+
+  const activationLink = `${CLIENT_URL}/activate-account?token=${activationToken}`
+
+  await transporter.sendMail({
+    from: `"${FROM_NAME}" <${FROM_ADDRESS}>`,
+    to: email,
+    subject: `Activate Your NumeriCode ${role} Account`,
+    html: `
+      <div style="font-family: sans-serif; max-width: 520px; margin: 0 auto;">
+        <div style="background: linear-gradient(135deg, #1E3A5F, #2563EB); padding: 32px; border-radius: 12px 12px 0 0; text-align: center;">
+          <h1 style="color: #ffffff; margin: 0; font-size: 24px;">Account Approved! 🎉</h1>
+        </div>
+        <div style="background: #ffffff; padding: 32px; border-radius: 0 0 12px 12px; border: 1px solid #e5e7eb;">
+          <p style="font-size: 16px; color: #374151; line-height: 1.6;">Hi <strong>${escapeHtml(name)}</strong>,</p>
+          <p style="font-size: 16px; color: #374151; line-height: 1.6;">
+            Your NumeriCode ${escapeHtml(role)} account has been approved by an admin!
+          </p>
+          <p style="font-size: 16px; color: #374151; line-height: 1.6;">
+            Click the button below to <strong>activate your account</strong> and access your dashboard:
+          </p>
+          <div style="text-align: center; margin: 28px 0;">
+            <a href="${activationLink}"
+               style="background: #2563EB; color: #ffffff; padding: 12px 32px; border-radius: 8px; text-decoration: none; font-size: 16px; font-weight: 600; display: inline-block;">
+              Activate My Account
+            </a>
+          </div>
+          <p style="font-size: 14px; color: #6b7280;">
+            This link will expire in 7 days. If you didn't request this, you can safely ignore this email.
+          </p>
+          <hr style="border: none; border-top: 1px solid #e5e7eb; margin: 24px 0;" />
+          <p style="font-size: 12px; color: #9ca3af; text-align: center;">&copy; ${new Date().getFullYear()} NumeriCode. All rights reserved.</p>
+        </div>
+      </div>
+    `,
+  })
+}
+
 /** Sends a password reset email with a reset link. */
 export async function sendPasswordResetEmail(email: string, name: string, resetToken: string) {
   if (!process.env.SMTP_USER || !process.env.SMTP_PASS) return // silently skip if email not configured

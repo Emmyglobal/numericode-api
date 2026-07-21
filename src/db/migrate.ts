@@ -23,6 +23,7 @@ try {
       );
       ALTER TABLE users ADD COLUMN IF NOT EXISTS bio TEXT NOT NULL DEFAULT '';
       ALTER TABLE users ADD COLUMN IF NOT EXISTS avatar_url TEXT;
+      ALTER TABLE users ADD COLUMN IF NOT EXISTS account_activated BOOLEAN NOT NULL DEFAULT FALSE;
 
       -- Courses
       CREATE TABLE IF NOT EXISTS courses (
@@ -265,6 +266,18 @@ try {
       );
       CREATE INDEX IF NOT EXISTS idx_course_notes_course_id ON course_notes(course_id);
       CREATE INDEX IF NOT EXISTS idx_course_notes_lesson_id ON course_notes(lesson_id);
+
+      -- Account activation tokens (sent when admin approves a user)
+      CREATE TABLE IF NOT EXISTS activation_tokens (
+        id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        user_id    UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        token      VARCHAR(255) UNIQUE NOT NULL,
+        expires_at TIMESTAMPTZ NOT NULL,
+        used       BOOLEAN NOT NULL DEFAULT FALSE,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      );
+      CREATE INDEX IF NOT EXISTS idx_activation_tokens_token ON activation_tokens(token);
+      CREATE INDEX IF NOT EXISTS idx_activation_tokens_user_id ON activation_tokens(user_id);
 
       -- Password reset tokens
       CREATE TABLE IF NOT EXISTS password_reset_tokens (
