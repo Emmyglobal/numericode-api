@@ -83,7 +83,7 @@ export async function sendWelcomeEmail(input: WelcomeMailInput) {
               Your ${escapeHtml(input.role)} account has been created successfully. You're now part of the NumeriCode learning community!
             </p>
             <p style="font-size: 16px; color: #374151; line-height: 1.6;">
-              Start exploring our courses, attending live classes, and tracking your progress.
+              Start exploring courses, attending live classes, and tracking your progress.
             </p>
             <div style="text-align: center; margin: 28px 0;">
               <a href="${dashboardLink}"
@@ -93,7 +93,7 @@ export async function sendWelcomeEmail(input: WelcomeMailInput) {
             </div>
             <p style="font-size: 14px; color: #6b7280; margin-top: 24px;">If you have any questions, just reply to this email.</p>
             <hr style="border: none; border-top: 1px solid #e5e7eb; margin: 24px 0;" />
-            <p style="font-size: 12px; color: #9ca3af; text-align: center;">&copy; ${new Date().getFullYear()} NumeriCode All rights reserved.</p>
+            <p style="font-size: 12px; color: #9ca3af; text-align: center;">&copy; ${new Date().getFullYear()} NumeriCode. All rights reserved.</p>
           </div>
         </div>
       `,
