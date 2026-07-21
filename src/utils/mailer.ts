@@ -24,17 +24,18 @@ function escapeHtml(s: string) {
 
 /** Generic email sender for notifications and digests */
 export async function sendEmail(input: { to: string; subject: string; html: string }) {
-  await resend.emails.send({
+  const { error } = await resend.emails.send({
     from: EMAIL_FROM,
     to: input.to,
     subject: input.subject,
     html: input.html,
   })
+  if (error) console.error('Resend sendEmail failed:', error)
 }
 
 /** Sends a contact form submission to the platform's contact inbox. */
 export async function sendContactEmail(input: ContactMailInput) {
-  await resend.emails.send({
+  const { error } = await resend.emails.send({
     from: EMAIL_FROM,
     to: process.env.CONTACT_EMAIL_TO || 'nwaforugochukwu21@gmail.com',
     replyTo: input.email,
@@ -51,6 +52,7 @@ export async function sendContactEmail(input: ContactMailInput) {
       </div>
     `,
   })
+  if (error) console.error('Resend sendContactEmail failed:', error)
 }
 
 /** Sends a welcome email after successful account creation. */
@@ -59,7 +61,7 @@ export async function sendWelcomeEmail(input: WelcomeMailInput) {
     ? `${CLIENT_URL}/trainer`
     : `${CLIENT_URL}/dashboard`
 
-  await resend.emails.send({
+  const { error } = await resend.emails.send({
     from: EMAIL_FROM,
     to: input.email,
     subject: `Welcome to NumeriCode, ${input.name}!`,
@@ -89,13 +91,14 @@ export async function sendWelcomeEmail(input: WelcomeMailInput) {
       </div>
     `,
   })
+  if (error) console.error('Resend sendWelcomeEmail failed:', error)
 }
 
 /** Sends a password reset email with a reset link. */
 export async function sendPasswordResetEmail(email: string, name: string, resetToken: string) {
   const resetLink = `${CLIENT_URL}/reset-password?token=${resetToken}`
 
-  await resend.emails.send({
+  const { error } = await resend.emails.send({
     from: EMAIL_FROM,
     to: email,
     subject: 'Reset your NumeriCode password',
@@ -124,6 +127,7 @@ export async function sendPasswordResetEmail(email: string, name: string, resetT
       </div>
     `,
   })
+  if (error) console.error('Resend sendPasswordResetEmail failed:', error)
 }
 
 /** Sends an account activation email with a link containing the activation token. */
@@ -133,7 +137,7 @@ export async function sendActivationEmail(email: string, name: string, role: str
     ? `${CLIENT_URL}/trainer`
     : `${CLIENT_URL}/dashboard`
 
-  await resend.emails.send({
+  const { error } = await resend.emails.send({
     from: EMAIL_FROM,
     to: email,
     subject: 'Activate your NumeriCode account',
@@ -167,4 +171,5 @@ export async function sendActivationEmail(email: string, name: string, role: str
       </div>
     `,
   })
+  if (error) console.error('Resend sendActivationEmail failed:', error)
 }
