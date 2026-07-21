@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "ts-node-dev --respawn --transpile-only src/index.ts",
     "build": "tsc",
-    "db:migrate": "node dist/db/migrate.js",
+    "db:migrate": "ts-node src/db/migrate.ts",
     "start": "node dist/index.js",
     "db:seed": "ts-node src/db/seed.ts",
     "test": "vitest run",
