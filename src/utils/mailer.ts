@@ -1,22 +1,9 @@
-import nodemailer from 'nodemailer'
+import { Resend } from 'resend'
 
-// SMTP is configured via environment variables — see .env.example.
-// For Gmail: use an "App Password" (not your normal password), generated at
-// https://myaccount.google.com/apppasswords — requires 2FA enabled on the account.
-const transporter = nodemailer.createTransport({
-  host: process.env.SMTP_HOST || 'smtp.gmail.com',
-  port: Number(process.env.SMTP_PORT) || 587,
-  secure: false, // true for port 465, false for 587 (STARTTLS)
-  auth: {
-    user: process.env.SMTP_USER,
-    pass: process.env.SMTP_PASS,
-  },
-})
+const resend = new Resend(process.env.RESEND_API_KEY)
 
-const CONTACT_EMAIL_TO = process.env.CONTACT_EMAIL_TO || 'nwaforugochukwu21@gmail.com'
-const FROM_NAME         = 'NumeriCode'
-const FROM_ADDRESS      = process.env.SMTP_USER || 'nwaforugochukwu21@gmail.com'
-const CLIENT_URL        = process.env.CLIENT_URL || 'http://localhost:5173'
+const EMAIL_FROM = process.env.EMAIL_FROM || 'noreply@numericode.com'
+const CLIENT_URL = process.env.CLIENT_URL || 'http://localhost:5173'
 
 interface ContactMailInput {
   name: string
@@ -31,14 +18,14 @@ interface WelcomeMailInput {
   role: string
 }
 
+function escapeHtml(s: string) {
+  return s.replace(/&/g, '&').replace(/</g, '<').replace(/>/g, '>').replace(/"/g, '"')
+}
+
 /** Generic email sender for notifications and digests */
 export async function sendEmail(input: { to: string; subject: string; html: string }) {
-  if (!process.env.SMTP_USER || !process.env.SMTP_PASS) {
-    throw new Error('Email is not configured on the server. Set SMTP_USER and SMTP_PASS.')
-  }
-
-  await transporter.sendMail({
-    from: `"${FROM_NAME}" <${FROM_ADDRESS}>`,
+  await resend.emails.send({
+    from: EMAIL_FROM,
     to: input.to,
     subject: input.subject,
     html: input.html,
@@ -47,13 +34,9 @@ export async function sendEmail(input: { to: string; subject: string; html: stri
 
 /** Sends a contact form submission to the platform's contact inbox. */
 export async function sendContactEmail(input: ContactMailInput) {
-  if (!process.env.SMTP_USER || !process.env.SMTP_PASS) {
-    throw new Error('Email is not configured on the server. Set SMTP_USER and SMTP_PASS.')
-  }
-
-  await transporter.sendMail({
-    from: `"${FROM_NAME} Contact Form" <${FROM_ADDRESS}>`,
-    to: CONTACT_EMAIL_TO,
+  await resend.emails.send({
+    from: EMAIL_FROM,
+    to: process.env.CONTACT_EMAIL_TO || 'nwaforugochukwu21@gmail.com',
     replyTo: input.email,
     subject: `[NumeriCode Contact] ${input.subject}`,
     text: `From: ${input.name} <${input.email}>\n\n${input.message}`,
@@ -72,14 +55,12 @@ export async function sendContactEmail(input: ContactMailInput) {
 
 /** Sends a welcome email after successful account creation. */
 export async function sendWelcomeEmail(input: WelcomeMailInput) {
-  if (!process.env.SMTP_USER || !process.env.SMTP_PASS) return // silently skip if email not configured
-
   const dashboardLink = input.role === 'trainer'
     ? `${CLIENT_URL}/trainer`
     : `${CLIENT_URL}/dashboard`
 
-  await transporter.sendMail({
-    from: `"${FROM_NAME}" <${FROM_ADDRESS}>`,
+  await resend.emails.send({
+    from: EMAIL_FROM,
     to: input.email,
     subject: `Welcome to NumeriCode, ${input.name}!`,
     html: `
@@ -110,54 +91,12 @@ export async function sendWelcomeEmail(input: WelcomeMailInput) {
   })
 }
 
-/** Sends an account activation email with a link the user must click before accessing the dashboard. */
-export async function sendActivationEmail(email: string, name: string, role: string, activationToken: string) {
-  if (!process.env.SMTP_USER || !process.env.SMTP_PASS) return // silently skip if email not configured
-
-  const activationLink = `${CLIENT_URL}/activate-account?token=${activationToken}`
-
-  await transporter.sendMail({
-    from: `"${FROM_NAME}" <${FROM_ADDRESS}>`,
-    to: email,
-    subject: `Activate Your NumeriCode ${role} Account`,
-    html: `
-      <div style="font-family: sans-serif; max-width: 520px; margin: 0 auto;">
-        <div style="background: linear-gradient(135deg, #1E3A5F, #2563EB); padding: 32px; border-radius: 12px 12px 0 0; text-align: center;">
-          <h1 style="color: #ffffff; margin: 0; font-size: 24px;">Account Approved! 🎉</h1>
-        </div>
-        <div style="background: #ffffff; padding: 32px; border-radius: 0 0 12px 12px; border: 1px solid #e5e7eb;">
-          <p style="font-size: 16px; color: #374151; line-height: 1.6;">Hi <strong>${escapeHtml(name)}</strong>,</p>
-          <p style="font-size: 16px; color: #374151; line-height: 1.6;">
-            Your NumeriCode ${escapeHtml(role)} account has been approved by an admin!
-          </p>
-          <p style="font-size: 16px; color: #374151; line-height: 1.6;">
-            Click the button below to <strong>activate your account</strong> and access your dashboard:
-          </p>
-          <div style="text-align: center; margin: 28px 0;">
-            <a href="${activationLink}"
-               style="background: #2563EB; color: #ffffff; padding: 12px 32px; border-radius: 8px; text-decoration: none; font-size: 16px; font-weight: 600; display: inline-block;">
-              Activate My Account
-            </a>
-          </div>
-          <p style="font-size: 14px; color: #6b7280;">
-            This link will expire in 7 days. If you didn't request this, you can safely ignore this email.
-          </p>
-          <hr style="border: none; border-top: 1px solid #e5e7eb; margin: 24px 0;" />
-          <p style="font-size: 12px; color: #9ca3af; text-align: center;">&copy; ${new Date().getFullYear()} NumeriCode. All rights reserved.</p>
-        </div>
-      </div>
-    `,
-  })
-}
-
 /** Sends a password reset email with a reset link. */
 export async function sendPasswordResetEmail(email: string, name: string, resetToken: string) {
-  if (!process.env.SMTP_USER || !process.env.SMTP_PASS) return // silently skip if email not configured
-
   const resetLink = `${CLIENT_URL}/reset-password?token=${resetToken}`
 
-  await transporter.sendMail({
-    from: `"${FROM_NAME}" <${FROM_ADDRESS}>`,
+  await resend.emails.send({
+    from: EMAIL_FROM,
     to: email,
     subject: 'Reset your NumeriCode password',
     html: `
@@ -187,6 +126,45 @@ export async function sendPasswordResetEmail(email: string, name: string, resetT
   })
 }
 
-function escapeHtml(s: string) {
-  return s.replace(/&/g, '&').replace(/</g, '<').replace(/>/g, '>').replace(/"/g, '"')
+/** Sends an account activation email with a link containing the activation token. */
+export async function sendActivationEmail(email: string, name: string, role: string, token: string) {
+  const activationLink = `${CLIENT_URL}/activate?token=${token}`
+  const dashboardLink = role === 'trainer'
+    ? `${CLIENT_URL}/trainer`
+    : `${CLIENT_URL}/dashboard`
+
+  await resend.emails.send({
+    from: EMAIL_FROM,
+    to: email,
+    subject: 'Activate your NumeriCode account',
+    html: `
+      <div style="font-family: sans-serif; max-width: 520px; margin: 0 auto;">
+        <div style="background: linear-gradient(135deg, #1E3A5F, #2563EB); padding: 32px; border-radius: 12px 12px 0 0; text-align: center;">
+          <h1 style="color: #ffffff; margin: 0; font-size: 24px;">Activate Your Account</h1>
+        </div>
+        <div style="background: #ffffff; padding: 32px; border-radius: 0 0 12px 12px; border: 1px solid #e5e7eb;">
+          <p style="font-size: 16px; color: #374151; line-height: 1.6;">Hi <strong>${escapeHtml(name ?? '')}</strong>,</p>
+          <p style="font-size: 16px; color: #374151; line-height: 1.6;">
+            Your ${escapeHtml(role)} account has been approved. Click the button below to activate it and access your dashboard:
+          </p>
+          <div style="text-align: center; margin: 28px 0;">
+            <a href="${activationLink}"
+               style="background: #2563EB; color: #ffffff; padding: 12px 32px; border-radius: 8px; text-decoration: none; font-size: 16px; font-weight: 600; display: inline-block;">
+              Activate Account
+            </a>
+          </div>
+          <p style="font-size: 14px; color: #6b7280;">
+            This link will expire in 7 days. If the button doesn't work, copy and paste this link into your browser:
+            <br />
+            <a href="${activationLink}" style="color:#2563EB; word-break:break-all;">${activationLink}</a>
+          </p>
+          <p style="font-size: 14px; color: #6b7280; margin-top: 24px;">
+            Once activated, you can go directly to your <a href="${dashboardLink}" style="color:#2563EB;">dashboard</a>.
+          </p>
+          <hr style="border: none; border-top: 1px solid #e5e7eb; margin: 24px 0;" />
+          <p style="font-size: 12px; color: #9ca3af; text-align: center;">&copy; ${new Date().getFullYear()} NumeriCode. All rights reserved.</p>
+        </div>
+      </div>
+    `,
+  })
 }

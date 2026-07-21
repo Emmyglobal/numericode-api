@@ -8,7 +8,7 @@
     "build": "tsc",
     "start": "node dist/index.js",
     "db:migrate": "node dist/db/migrate.js",
-"db:seed": "node dist/db/seed.js",
+    "db:seed": "node dist/db/seed.js",
     "test": "vitest run",
     "test:watch": "vitest"
   },
@@ -24,8 +24,8 @@
     "helmet": "^8.2.0",
     "jsonwebtoken": "^9.0.3",
     "morgan": "^1.11.0",
-    "nodemailer": "^9.0.3",
-    "pg": "^8.22.0"
+    "pg": "^8.22.0",
+    "resend": "^6.18.0"
   },
   "devDependencies": {
     "@types/bcryptjs": "^2.4.6",
@@ -34,7 +34,6 @@
     "@types/jsonwebtoken": "^9.0.10",
     "@types/morgan": "^1.9.10",
     "@types/node": "^26.1.0",
-    "@types/nodemailer": "^8.0.1",
     "@types/pg": "^8.20.0",
     "@types/supertest": "^7.2.0",
     "supertest": "^7.2.2",
