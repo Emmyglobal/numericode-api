@@ -83,7 +83,7 @@ export async function sendWelcomeEmail(input: WelcomeMailInput) {
               Your ${escapeHtml(input.role)} account has been created successfully. You're now part of the NumeriCode learning community!
             </p>
             <p style="font-size: 16px; color: #374151; line-height: 1.6;">
-              Start exploring courses, attending live classes, and tracking your progress.
+              Start exploring our courses, attending live classes, and tracking your progress.
             </p>
             <div style="text-align: center; margin: 28px 0;">
               <a href="${dashboardLink}"
