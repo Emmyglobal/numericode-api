@@ -9,20 +9,22 @@ async function seed() {
 
   // ── Users ──────────────────────────────────────────────────────────────────
   const { rows: users } = await query<{ id: string; email: string }>(`
-    INSERT INTO users (name, email, password_hash, role, status)
+    INSERT INTO users (name, email, password_hash, role, status, account_activated)
     VALUES
-      ('Emmanuel Nwafor', 'emmanuel@numericode.com', $1, 'admin',   'active'),
-      ('Trainer One',     'trainer@numericode.com',  $1, 'trainer', 'active'),
-      ('Kolade Adebayo',  'kolade@gmail.com',         $1, 'student', 'active'),
-      ('Amaka Okonkwo',   'amaka@gmail.com',          $1, 'student', 'active'),
+      ('Emmanuel Nwafor', 'emmanuel@numericode.com', $1, 'admin',   'active', TRUE),
+      ('Ugochukwu Nwafor', 'nwaforugochukwu21@gmail.com', $1, 'admin', 'active', TRUE),
+      ('Trainer One',     'trainer@numericode.com',  $1, 'trainer', 'active', FALSE),
+      ('Kolade Adebayo',  'kolade@gmail.com',         $1, 'student', 'active', FALSE),
+      ('Amaka Okonkwo',   'amaka@gmail.com',          $1, 'student', 'active', FALSE),
       
-      ('Chidi Obi',       'chidi@gmail.com',          $1, 'student', 'active'),
-      ('Ngozi Eze',       'ngozi@gmail.com',          $1, 'student', 'active'),
-      ('Emeka Nwosu',     'emeka@gmail.com',          $1, 'student', 'suspended')
+      ('Chidi Obi',       'chidi@gmail.com',          $1, 'student', 'active', FALSE),
+      ('Ngozi Eze',       'ngozi@gmail.com',          $1, 'student', 'active', FALSE),
+      ('Emeka Nwosu',     'emeka@gmail.com',          $1, 'student', 'suspended', FALSE)
     RETURNING id, email
   `, [passwordHash])
 
   const admin   = users.find(u => u.email === 'emmanuel@numericode.com')!
+  const adminUgochukwu = users.find(u => u.email === 'nwaforugochukwu21@gmail.com')!
   const trainer = users.find(u => u.email === 'trainer@numericode.com')!
   const kolade   = users.find(u => u.email === 'kolade@gmail.com')!
   const amaka    = users.find(u => u.email === 'amaka@gmail.com')!
@@ -105,9 +107,10 @@ async function seed() {
   `, [admin.id])
 
   console.log('Seed complete.')
-  console.log(`  Admin:   emmanuel@numericode.com / password123`)
-  console.log(`  Trainer: trainer@numericode.com   / password123`)
-  console.log(`  Student: kolade@gmail.com          / password123`)
+  console.log(`  Admin:   emmanuel@numericode.com      / password123`)
+  console.log(`  Admin:   nwaforugochukwu21@gmail.com  / password123`)
+  console.log(`  Trainer: trainer@numericode.com        / password123`)
+  console.log(`  Student: kolade@gmail.com               / password123`)
   process.exit(0)
 }
 
