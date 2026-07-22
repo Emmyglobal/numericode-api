@@ -110,6 +110,104 @@ export async function updateUser(req: Request, res: Response, next: NextFunction
   } catch (err) { next(err) }
 }
 
+/**
+ * Reassign a student to a different trainer by updating the instructor
+ * on all courses the student is enrolled in that belong to the old trainer.
+ * Also updates the guardian_enrollments.preferred_teacher if it exists.
+ */
+export async function reassignStudent(req: Request, res: Response, next: NextFunction) {
+  try {
+    const { studentId, newTrainerId } = req.body as { studentId?: string; newTrainerId?: string }
+    if (!studentId || !newTrainerId) return fail(res, 'studentId and newTrainerId are required', 400)
+
+    // Verify student exists
+    const { rows: studentRows } = await query<UserRow>('SELECT * FROM users WHERE id = $1 AND role = $2', [studentId, 'student'])
+    if (!studentRows[0]) return notFound(res, 'Student not found')
+
+    // Verify new trainer exists and is active
+    const { rows: trainerRows } = await query<UserRow>(
+      'SELECT * FROM users WHERE id = $1 AND role = $2 AND status = $3', [newTrainerId, 'trainer', 'active']
+    )
+    if (!trainerRows[0]) return fail(res, 'Trainer not found or not active', 400)
+
+    const client = await getClient()
+    try {
+      await client.query('BEGIN')
+
+      // Get all courses the student is enrolled in
+      const { rows: enrolledCourses } = await client.query<{ course_id: string; instructor_id: string }>(
+        `SELECT e.course_id, c.instructor_id FROM enrollments e
+         JOIN courses c ON c.id = e.course_id
+         WHERE e.user_id = $1`,
+        [studentId]
+      )
+
+      // Reassign each course to the new trainer
+      for (const course of enrolledCourses) {
+        await client.query(
+          `UPDATE courses SET instructor_id = $1 WHERE id = $2`,
+          [newTrainerId, course.course_id]
+        )
+      }
+
+      // Update guardian_enrollments preferred_teacher if exists
+      const { rows: guardianRows } = await client.query<{ id: string }>(
+        'SELECT id FROM guardian_enrollments WHERE student_id = $1',
+        [studentId]
+      )
+      if (guardianRows[0]) {
+        await client.query(
+          `UPDATE guardian_enrollments SET preferred_teacher = $1 WHERE student_id = $2`,
+          [trainerRows[0].name, studentId]
+        )
+      }
+
+      await client.query('COMMIT')
+
+      // Notify both users
+      await notifyUser(studentId, 'Your trainer has been reassigned',
+        `You have been reassigned to trainer ${trainerRows[0].name}.`, 'general')
+      await notifyUser(newTrainerId, 'New student assigned to you',
+        `Student ${studentRows[0].name} has been reassigned to your courses.`, 'general')
+
+      return ok(res, {
+        message: `Student reassigned to trainer ${trainerRows[0].name}`,
+        coursesUpdated: enrolledCourses.length,
+      })
+    } catch (err) {
+      await client.query('ROLLBACK')
+      throw err
+    } finally {
+      client.release()
+    }
+  } catch (err) { next(err) }
+}
+
+/**
+ * Reassign a course to a different trainer (admin only).
+ */
+export async function reassignCourse(req: Request, res: Response, next: NextFunction) {
+  try {
+    const { courseId, newTrainerId } = req.body as { courseId?: string; newTrainerId?: string }
+    if (!courseId || !newTrainerId) return fail(res, 'courseId and newTrainerId are required', 400)
+
+    const { rows: courseRows } = await query<CourseRow>('SELECT * FROM courses WHERE id = $1', [courseId])
+    if (!courseRows[0]) return notFound(res, 'Course not found')
+
+    const { rows: trainerRows } = await query<UserRow>(
+      'SELECT * FROM users WHERE id = $1 AND role = $2 AND status = $3', [newTrainerId, 'trainer', 'active']
+    )
+    if (!trainerRows[0]) return fail(res, 'Trainer not found or not active', 400)
+
+    await query('UPDATE courses SET instructor_id = $1 WHERE id = $2', [newTrainerId, courseId])
+
+    await notifyUser(newTrainerId, 'Course assigned to you',
+      `The course "${courseRows[0].title}" has been assigned to you.`, 'course', '/trainer/courses')
+
+    return ok(res, { message: `Course reassigned to ${trainerRows[0].name}` })
+  } catch (err) { next(err) }
+}
+
 export async function getCourses(_req: Request, res: Response, next: NextFunction) {
   try {
     const { rows } = await query<CourseRow & { instructor_name: string; enrolled_count: string }>(

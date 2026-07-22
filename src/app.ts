@@ -22,6 +22,7 @@ import notificationsEnhancedRoutes from './routes/notifications-enhanced.routes'
 import analyticsRoutes    from './routes/analytics.routes'
 import messagingRoutes    from './routes/messaging.routes'
 import badgesRoutes       from './routes/badges.routes'
+import resourcesRoutes    from './routes/resources.routes'
 import { errorHandler, notFoundHandler } from './middleware/errorHandler'
 
 export function createApp() {
@@ -71,6 +72,7 @@ app.get('/health', (_req, res) => {
   app.use('/api', analyticsRoutes)
   app.use('/api', messagingRoutes)
   app.use('/api', badgesRoutes)
+  app.use('/api', resourcesRoutes)
 
   app.use(notFoundHandler)
   app.use(errorHandler)

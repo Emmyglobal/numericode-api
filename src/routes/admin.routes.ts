@@ -3,7 +3,9 @@ import { requireAuth, requireRole } from '../middleware/auth'
 import {
   getStats, getUsers, getTrainers, updateUser,
   getCourses, createCourse, updateCourseStatus,
-  getAnnouncements, createAnnouncement, getCourseRequests, reviewCourseRequest, updateCourseAccess, getCourseCompletionSettings, updateCourseCompletionSettings,
+  getAnnouncements, createAnnouncement, getCourseRequests, reviewCourseRequest,
+  updateCourseAccess, getCourseCompletionSettings, updateCourseCompletionSettings,
+  reassignStudent, reassignCourse,
 } from '../controllers/admin.controller'
 
 const router = Router()
@@ -23,5 +25,7 @@ router.get('/course-requests',       ...guard, getCourseRequests)
 router.patch('/course-requests/:id', ...guard, reviewCourseRequest)
 router.get('/announcements',        ...guard, getAnnouncements)
 router.post('/announcements',       ...guard, createAnnouncement)
+router.post('/reassign-student',    ...guard, reassignStudent)
+router.post('/reassign-course',     ...guard, reassignCourse)
 
 export default router
