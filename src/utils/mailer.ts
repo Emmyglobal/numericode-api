@@ -2,7 +2,12 @@ import sgMail from '@sendgrid/mail'
 
 sgMail.setApiKey(process.env.SENDGRID_API_KEY || '')
 
+// IMPORTANT: EMAIL_FROM must be a verified sender in your SendGrid account.
+// Using Gmail (e.g. @gmail.com) causes SPF/DKIM failures → emails go to spam.
+// Solution: verify a domain you own in SendGrid (e.g. numericode.com) or
+// verify a single sender email. Then use that verified address here.
 const EMAIL_FROM = process.env.EMAIL_FROM || 'noreply@numericode.com'
+const EMAIL_FROM_NAME = process.env.EMAIL_FROM_NAME || 'NumeriCode'
 const CLIENT_URL = process.env.CLIENT_URL || 'http://localhost:5173'
 
 interface ContactMailInput {
@@ -26,7 +31,7 @@ function escapeHtml(s: string) {
 export async function sendEmail(input: { to: string; subject: string; html: string }) {
   try {
     await sgMail.send({
-      from: EMAIL_FROM,
+      from: { name: EMAIL_FROM_NAME, email: EMAIL_FROM },
       to: input.to,
       subject: input.subject,
       html: input.html,
@@ -40,7 +45,7 @@ export async function sendEmail(input: { to: string; subject: string; html: stri
 export async function sendContactEmail(input: ContactMailInput) {
   try {
     await sgMail.send({
-      from: EMAIL_FROM,
+      from: { name: EMAIL_FROM_NAME, email: EMAIL_FROM },
       to: process.env.CONTACT_EMAIL_TO || 'nwaforugochukwu21@gmail.com',
       replyTo: input.email,
       subject: `[NumeriCode Contact] ${input.subject}`,
@@ -69,7 +74,7 @@ export async function sendWelcomeEmail(input: WelcomeMailInput) {
 
   try {
     await sgMail.send({
-      from: EMAIL_FROM,
+      from: { name: EMAIL_FROM_NAME, email: EMAIL_FROM },
       to: input.email,
       subject: `Welcome to NumeriCode, ${input.name}!`,
       html: `
@@ -109,7 +114,7 @@ export async function sendPasswordResetEmail(email: string, name: string, resetT
 
   try {
     await sgMail.send({
-      from: EMAIL_FROM,
+      from: { name: EMAIL_FROM_NAME, email: EMAIL_FROM },
       to: email,
       subject: 'Reset your NumeriCode password',
       html: `
@@ -151,7 +156,7 @@ export async function sendActivationEmail(email: string, name: string, role: str
 
   try {
     await sgMail.send({
-      from: EMAIL_FROM,
+      from: { name: EMAIL_FROM_NAME, email: EMAIL_FROM },
       to: email,
       subject: 'Activate your NumeriCode account',
       html: `
