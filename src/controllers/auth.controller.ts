@@ -109,7 +109,7 @@ export async function register(req: Request, res: Response, next: NextFunction) 
     // prevents self-service privilege escalation. Admin accounts must be created by an
     // existing admin via PATCH /admin/users/:id, or by the seed scripts.
     const allowedSelfServiceRoles = ['student', 'trainer']
-    const finalRole = allowedSelfServiceRoles.includes(role ?? '') ? role : 'student'
+    const finalRole: string = allowedSelfServiceRoles.includes(role ?? '') ? role! : 'student'
     const hasGuardianDetails = Boolean(guardianName || guardianPhone || preferredTeacherId || subjects?.length)
 
     if (finalRole === 'student' && hasGuardianDetails) {
