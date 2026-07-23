@@ -2,6 +2,56 @@ import type { Request, Response, NextFunction } from 'express'
 import { query } from '../db/pool'
 import { ok, fail, notFound, forbidden } from '../utils/response'
 
+const isAdmin = (req: Request) => req.user!.role === 'admin'
+
+interface QuizRow { id: string; title: string; lesson_id: string; passing_score: number; created_by: string }
+interface AssignmentRow { id: string; title: string; lesson_id: string; due_date: Date; total_marks: number }
+interface LessonRow { id: string; module_id: string; title: string; position: number }
+interface ModuleRow { id: string; course_id: string; title: string; position: number }
+
+export async function getCourseBuilderContent(req: Request, res: Response, next: NextFunction) {
+  try {
+    const courseId = req.params.courseId
+    const { rows: courseRows } = await query('SELECT id, title FROM courses WHERE id = $1', [courseId])
+    if (!courseRows[0]) return notFound(res, 'Course not found')
+
+    const { rows: modules } = await query<ModuleRow>(
+      'SELECT * FROM modules WHERE course_id = $1 ORDER BY position', [courseId]
+    )
+
+    const modulesWithContent = await Promise.all(modules.map(async (mod) => {
+      const { rows: lessons } = await query<LessonRow>(
+        'SELECT * FROM lessons WHERE module_id = $1 ORDER BY position', [mod.id]
+      )
+
+      const lessonsWithAssessments = await Promise.all(lessons.map(async (lesson) => {
+        const { rows: quizzes } = await query<QuizRow>(
+          'SELECT id, title, lesson_id, passing_score, created_by FROM quizzes WHERE lesson_id = $1 ORDER BY title',
+          [lesson.id]
+        )
+        const { rows: assignments } = await query<AssignmentRow>(
+          'SELECT id, title, lesson_id, due_date, total_marks FROM assignments WHERE lesson_id = $1 ORDER BY title',
+          [lesson.id]
+        )
+        return {
+          id: lesson.id,
+          title: lesson.title,
+          quizzes: quizzes.map(q => ({ id: q.id, title: q.title })),
+          assignments: assignments.map(a => ({ id: a.id, title: a.title })),
+        }
+      }))
+
+      return { id: mod.id, title: mod.title, lessons: lessonsWithAssessments }
+    }))
+
+    return ok(res, {
+      id: courseRows[0].id,
+      title: courseRows[0].title,
+      modules: modulesWithContent,
+    })
+  } catch (err) { next(err) }
+}
+
 export async function createModule(req: Request, res: Response, next: NextFunction) {
   try {
     const { title } = req.body as { title?: string }
@@ -10,7 +60,7 @@ export async function createModule(req: Request, res: Response, next: NextFuncti
 
     const { rows: courseRows } = await query('SELECT id, instructor_id FROM courses WHERE id = $1', [courseId])
     if (!courseRows[0]) return notFound(res, 'Course not found')
-    if (courseRows[0].instructor_id !== req.user!.userId) return forbidden(res, 'You can only add modules to your own courses')
+    if (!isAdmin(req) && courseRows[0].instructor_id !== req.user!.userId) return forbidden(res, 'You can only add modules to your own courses')
 
     const { rows } = await query(
       `INSERT INTO modules (course_id, title, position)
@@ -32,7 +82,7 @@ export async function createLesson(req: Request, res: Response, next: NextFuncti
       [moduleId]
     )
     if (!moduleRows[0]) return notFound(res, 'Module not found')
-    if (moduleRows[0].instructor_id !== req.user!.userId) return forbidden(res, 'You can only add lessons to your own modules')
+    if (!isAdmin(req) && moduleRows[0].instructor_id !== req.user!.userId) return forbidden(res, 'You can only add lessons to your own modules')
 
     const { rows } = await query(
       `INSERT INTO lessons (module_id, title, position)
@@ -52,7 +102,7 @@ export async function getLessons(req: Request, res: Response, next: NextFunction
       [lessonId]
     )
     if (!lessonRows[0]) return notFound(res, 'Lesson not found')
-    if (lessonRows[0].instructor_id !== req.user!.userId) return forbidden(res, 'You can only access lessons in your own courses')
+    if (!isAdmin(req) && lessonRows[0].instructor_id !== req.user!.userId) return forbidden(res, 'You can only access lessons in your own courses')
     return ok(res, { id: lessonRows[0].id, title: lessonRows[0].title })
   } catch (err) { next(err) }
 }
@@ -69,7 +119,7 @@ export async function createQuiz(req: Request, res: Response, next: NextFunction
       [lessonId]
     )
     if (!lessonRows[0]) return notFound(res, 'Lesson not found')
-    if (lessonRows[0].instructor_id !== req.user!.userId) return forbidden(res, 'You can only add quizzes to your own lessons')
+    if (!isAdmin(req) && lessonRows[0].instructor_id !== req.user!.userId) return forbidden(res, 'You can only add quizzes to your own lessons')
 
     const { rows } = await query(
       `INSERT INTO quizzes (course_id, lesson_id, title, description, passing_score, created_by)
@@ -92,7 +142,7 @@ export async function createAssignment(req: Request, res: Response, next: NextFu
       [lessonId]
     )
     if (!lessonRows[0]) return notFound(res, 'Lesson not found')
-    if (lessonRows[0].instructor_id !== req.user!.userId) return forbidden(res, 'You can only add assignments to your own lessons')
+    if (!isAdmin(req) && lessonRows[0].instructor_id !== req.user!.userId) return forbidden(res, 'You can only add assignments to your own lessons')
 
     const { rows } = await query(
       `INSERT INTO assignments (course_id, lesson_id, title, due_date, total_marks, passing_score)
