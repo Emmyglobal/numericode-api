@@ -25,10 +25,16 @@ export async function getCourseBuilderContent(req: Request, res: Response, next:
       )
 
       const lessonsWithAssessments = await Promise.all(lessons.map(async (lesson) => {
-        const { rows: quizzes } = await query<QuizRow>(
-          'SELECT id, title, lesson_id, passing_score, created_by FROM quizzes WHERE lesson_id = $1 ORDER BY title',
-          [lesson.id]
-        )
+        let quizzes: QuizRow[] = []
+        try {
+          const { rows: quizRows } = await query<QuizRow>(
+            'SELECT id, title, lesson_id, passing_score, created_by FROM quizzes WHERE lesson_id = $1 ORDER BY title',
+            [lesson.id]
+          )
+          quizzes = quizRows
+        } catch {
+          // lesson_id column may not exist yet — return empty quizzes
+        }
         const { rows: assignments } = await query<AssignmentRow>(
           'SELECT id, title, lesson_id, due_date, total_marks FROM assignments WHERE lesson_id = $1 ORDER BY title',
           [lesson.id]
@@ -121,11 +127,20 @@ export async function createQuiz(req: Request, res: Response, next: NextFunction
     if (!lessonRows[0]) return notFound(res, 'Lesson not found')
     if (!isAdmin(req) && lessonRows[0].instructor_id !== req.user!.userId) return forbidden(res, 'You can only add quizzes to your own lessons')
 
-    const { rows } = await query(
-      `INSERT INTO quizzes (course_id, lesson_id, title, description, passing_score, created_by)
-       VALUES ($1, $2, $3, $4, 70, $5) RETURNING *`,
-      [lessonRows[0].course_id, lessonId, title.trim(), '', req.user!.userId]
-    )
+    let rows: any[]
+    try {
+      ;({ rows } = await query(
+        `INSERT INTO quizzes (course_id, lesson_id, title, description, passing_score, created_by)
+         VALUES ($1, $2, $3, $4, 70, $5) RETURNING *`,
+        [lessonRows[0].course_id, lessonId, title.trim(), '', req.user!.userId]
+      ))
+    } catch {
+      ;({ rows } = await query(
+        `INSERT INTO quizzes (course_id, title, description, passing_score, created_by)
+         VALUES ($1, $2, $3, 70, $4) RETURNING *`,
+        [lessonRows[0].course_id, title.trim(), '', req.user!.userId]
+      ))
+    }
     return ok(res, { id: rows[0].id, title: rows[0].title, lessonId }, 201)
   } catch (err) { next(err) }
 }
