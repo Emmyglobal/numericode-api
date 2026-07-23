@@ -311,6 +311,8 @@ try {
         updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
       );
       CREATE INDEX IF NOT EXISTS idx_quizzes_course_id ON quizzes(course_id);
+      ALTER TABLE quizzes ADD COLUMN IF NOT EXISTS lesson_id UUID REFERENCES lessons(id) ON DELETE SET NULL;
+      ALTER TABLE quizzes ADD COLUMN IF NOT EXISTS module_id UUID REFERENCES modules(id) ON DELETE SET NULL;
 
       -- Quiz Questions
       CREATE TABLE IF NOT EXISTS quiz_questions (
