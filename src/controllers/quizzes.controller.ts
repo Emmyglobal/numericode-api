@@ -1,5 +1,5 @@
 import type { Request, Response, NextFunction } from 'express'
-import { query } from '../db/pool'
+import { query, getClient } from '../db/pool'
 import { ok, fail, notFound, forbidden } from '../utils/response'
 
 interface QuizRow {
@@ -81,7 +81,7 @@ export async function createQuiz(req: Request, res: Response, next: NextFunction
     
     if (!courseId || !title) return fail(res, 'Course ID and title are required', 400)
     
-    const client = await req.app.locals.dbClient || (await import('../db/pool')).getClient()
+    const client = await getClient()
     
     try {
       await client.query('BEGIN')
