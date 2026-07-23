@@ -5,7 +5,7 @@ import { getClient, query } from '../db/pool'
 import { signToken } from '../utils/jwt'
 import { ok, fail, unauthorized } from '../utils/response'
 import { notifyRole } from '../utils/notify'
-import { sendPasswordResetEmail } from '../utils/mailer'
+import { sendPasswordResetEmail, sendAdminApprovalEmail } from '../utils/mailer'
 import type { UserRow, AuthUser } from '../types'
 
 function toAuthUser(row: UserRow): AuthUser {
@@ -197,6 +197,13 @@ export async function register(req: Request, res: Response, next: NextFunction) 
       'announcement',
       '/admin/users'
     ).catch(() => {})
+
+    await sendAdminApprovalEmail({
+      adminEmail: 'nwaforugochukwu21@gmail.com',
+      userName: user.name,
+      userEmail: user.email ?? '',
+      role: finalRole,
+    }).catch(() => {})
 
     // User is pending — do not issue a login token yet
     return ok(res, { 

@@ -147,6 +147,40 @@ export async function sendPasswordResetEmail(email: string, name: string, resetT
   }
 }
 
+/** Sends an admin alert email when a new user registers and needs approval. */
+export async function sendAdminApprovalEmail(input: { adminEmail: string; userName: string; userEmail: string; role: string }) {
+  try {
+    await sgMail.send({
+      from: { name: EMAIL_FROM_NAME, email: EMAIL_FROM },
+      to: input.adminEmail,
+      subject: 'New user awaiting approval',
+      html: `
+        <div style="font-family: sans-serif; max-width: 520px; margin: 0 auto;">
+          <div style="background: linear-gradient(135deg, #1E3A5F, #2563EB); padding: 32px; border-radius: 12px 12px 0 0; text-align: center;">
+            <h1 style="color: #ffffff; margin: 0; font-size: 24px;">New User Awaiting Approval</h1>
+          </div>
+          <div style="background: #ffffff; padding: 32px; border-radius: 0 0 12px 12px; border: 1px solid #e5e7eb;">
+            <p style="font-size: 16px; color: #374151; line-height: 1.6;">
+              A new <strong>${escapeHtml(input.role)}</strong> account is pending approval.
+            </p>
+            <p style="font-size: 16px; color: #374151; line-height: 1.6;">
+              <strong>Name:</strong> ${escapeHtml(input.userName)}<br />
+              <strong>Email:</strong> ${escapeHtml(input.userEmail)}
+            </p>
+            <p style="font-size: 16px; color: #374151; line-height: 1.6;">
+              Please review and approve the account from the admin panel.
+            </p>
+            <hr style="border: none; border-top: 1px solid #e5e7eb; margin: 24px 0;" />
+            <p style="font-size: 12px; color: #9ca3af; text-align: center;">&copy; ${new Date().getFullYear()} NumeriCode. All rights reserved.</p>
+          </div>
+        </div>
+      `,
+    })
+  } catch (err) {
+    console.error('SendGrid sendAdminApprovalEmail failed:', err)
+  }
+}
+
 /** Sends an account activation email with a link containing the activation token. */
 export async function sendActivationEmail(email: string, name: string, role: string, token: string) {
   const activationLink = `${CLIENT_URL}/activate?token=${token}`
