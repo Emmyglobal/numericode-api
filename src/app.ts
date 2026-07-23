@@ -2,6 +2,7 @@ import express from 'express'
 import cors from 'cors'
 import helmet from 'helmet'
 import morgan from 'morgan'
+import path from 'path'
 
 import authRoutes         from './routes/auth.routes'
 import coursesRoutes      from './routes/courses.routes'
@@ -23,6 +24,8 @@ import analyticsRoutes    from './routes/analytics.routes'
 import messagingRoutes    from './routes/messaging.routes'
 import badgesRoutes       from './routes/badges.routes'
 import resourcesRoutes    from './routes/resources.routes'
+import trainerCourseContentRoutes from './routes/trainer-course-content.routes'
+import adminCourseContentRoutes from './routes/admin-course-content.routes'
 import { errorHandler, notFoundHandler } from './middleware/errorHandler'
 
 export function createApp() {
@@ -39,6 +42,7 @@ app.use(
   })
 )
   app.use(express.json({ limit: '2mb' }))
+  app.use('/uploads', express.static(path.resolve(process.cwd(), 'uploads')))
   if (process.env.NODE_ENV !== 'test') {
     app.use(morgan(process.env.NODE_ENV === 'production' ? 'combined' : 'dev'))
   }
@@ -58,7 +62,9 @@ app.get('/health', (_req, res) => {
   app.use('/api',         dashboardRoutes)
   app.use('/api',         notificationsRoutes)
   app.use('/api/trainer', trainerRoutes)
+  app.use('/api/trainer', trainerCourseContentRoutes)
   app.use('/api/admin',   adminRoutes)
+  app.use('/api/admin',   adminCourseContentRoutes)
   app.use('/api',         contactRoutes)
   app.use('/api/ai',      aiRoutes)
   app.use('/api/subscriptions', subscriptionsRoutes)

@@ -1,6 +1,7 @@
 import type { Request, Response, NextFunction } from 'express'
 import { query } from '../db/pool'
 import { ok, fail, notFound } from '../utils/response'
+import { singleResourceUpload } from '../middleware/upload'
 import type { ResourceRow } from '../types'
 
 /**
@@ -48,13 +49,38 @@ export async function getResources(req: Request, res: Response, next: NextFuncti
  */
 export async function createResource(req: Request, res: Response, next: NextFunction) {
   try {
-    const { lessonId, title, type, url } = req.body as {
+    const isMultipart = typeof (req as any).file !== 'undefined'
+    const body = req.body as {
       lessonId?: string; title?: string; type?: string; url?: string
     }
-    if (!lessonId || !title || !type || !url) {
-      return fail(res, 'lessonId, title, type, and url are required', 400)
+    const lessonId = body.lessonId
+    const title = body.title
+    const url = body.url
+
+    if (!lessonId || !title) {
+      return fail(res, 'lessonId and title are required', 400)
     }
-    if (!['pdf', 'video', 'link'].includes(type)) return fail(res, 'Invalid resource type', 400)
+
+    let finalType = body.type
+    let finalUrl = url
+
+    if (isMultipart && (req as any).file) {
+      const file = (req as any).file as { mimetype: string; filename: string }
+      if (!finalType) {
+        if (file.mimetype.startsWith('application/pdf')) finalType = 'pdf'
+        else if (file.mimetype.startsWith('video/')) finalType = 'video'
+        else if (file.mimetype.startsWith('image/')) finalType = 'pdf'
+        else finalType = 'file'
+      }
+      const host = (req.get('x-forwarded-host') || req.get('host') || '').toString()
+      const proto = (req.get('x-forwarded-proto') || req.protocol || 'http').toString()
+      finalUrl = `${proto}://${host}/uploads/${(req as any).file.filename}`
+    }
+
+    if (!finalType || !finalUrl) {
+      return fail(res, 'type and url are required', 400)
+    }
+    if (!['pdf', 'video', 'link'].includes(finalType)) return fail(res, 'Invalid resource type', 400)
 
     // Verify the lesson exists and (for trainers) belongs to their course
     const { rows: lessonRows } = await query<{ course_id: string; instructor_id: string }>(
@@ -71,7 +97,7 @@ export async function createResource(req: Request, res: Response, next: NextFunc
 
     const { rows } = await query<ResourceRow>(
       `INSERT INTO resources (lesson_id, title, type, url) VALUES ($1, $2, $3, $4) RETURNING *`,
-      [lessonId, title, type, url]
+      [lessonId, title, finalType, finalUrl]
     )
     const r = rows[0]
     return ok(res, {
