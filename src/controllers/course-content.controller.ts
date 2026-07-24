@@ -35,10 +35,16 @@ export async function getCourseBuilderContent(req: Request, res: Response, next:
         } catch {
           // lesson_id column may not exist yet — return empty quizzes
         }
-        const { rows: assignments } = await query<AssignmentRow>(
-          'SELECT id, title, lesson_id, due_date, total_marks FROM assignments WHERE lesson_id = $1 ORDER BY title',
-          [lesson.id]
-        )
+        let assignments: AssignmentRow[] = []
+        try {
+          const { rows: assignmentRows } = await query<AssignmentRow>(
+            'SELECT id, title, lesson_id, due_date, total_marks FROM assignments WHERE lesson_id = $1 ORDER BY title',
+            [lesson.id]
+          )
+          assignments = assignmentRows
+        } catch {
+          // lesson_id column may not exist yet — return empty assignments
+        }
         return {
           id: lesson.id,
           title: lesson.title,

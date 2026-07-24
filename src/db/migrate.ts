@@ -135,6 +135,7 @@ try {
       );
       ALTER TABLE assignments ADD COLUMN IF NOT EXISTS total_marks NUMERIC(8,2) NOT NULL DEFAULT 100 CHECK (total_marks > 0);
       ALTER TABLE assignments ADD COLUMN IF NOT EXISTS passing_score NUMERIC(8,2) NOT NULL DEFAULT 50 CHECK (passing_score >= 0);
+      ALTER TABLE assignments ADD COLUMN IF NOT EXISTS lesson_id UUID REFERENCES lessons(id) ON DELETE CASCADE;
 
       -- Submissions
       CREATE TABLE IF NOT EXISTS submissions (
