@@ -22,10 +22,24 @@ interface ForumPostRow {
 export async function listForumCategories(req: Request, res: Response, next: NextFunction) {
   try {
     const { courseId } = req.params
-    const { rows } = await query<ForumCategoryRow>(
+    let { rows } = await query<ForumCategoryRow>(
       'SELECT * FROM forum_categories WHERE course_id = $1 ORDER BY position',
       [courseId]
     )
+
+    // Auto-create default categories if none exist for this course
+    if (rows.length === 0) {
+      const { rows: newRows } = await query<ForumCategoryRow>(
+        `INSERT INTO forum_categories (course_id, name, description, position) VALUES
+         ($1, 'General Discussion', 'General questions and discussions about the course', 0),
+         ($1, 'Homework Help', 'Get help with assignments and homework', 1)
+        ON CONFLICT DO NOTHING
+        RETURNING *`,
+        [courseId]
+      )
+      rows = newRows
+    }
+
     return ok(res, rows.map(c => ({
       id: c.id, courseId: c.course_id, name: c.name, description: c.description,
       position: c.position, createdAt: c.created_at.toISOString(),

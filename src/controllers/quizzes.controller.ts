@@ -23,7 +23,7 @@ interface AttemptRow {
 
 export async function listQuizzes(req: Request, res: Response, next: NextFunction) {
   try {
-    const { courseId } = req.query
+    const courseId = req.params.courseId
     const { rows } = await query<QuizRow & { question_count: string; attempt_count: string }>(
       `SELECT q.*, 
         (SELECT COUNT(*) FROM quiz_questions WHERE quiz_id = q.id) as question_count,
