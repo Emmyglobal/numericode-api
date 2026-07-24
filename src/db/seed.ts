@@ -67,6 +67,16 @@ async function seed() {
       ($1, 'Multiplication & Division', 30, 2)
   `, [modules[0].id])
 
+  // ── Forum Categories ────────────────────────────────────────────────────────
+  await query(`
+    INSERT INTO forum_categories (course_id, name, description, position) VALUES
+      ($1, 'General Discussion', 'General questions and discussions about the course', 0),
+      ($1, 'Homework Help', 'Get help with assignments and homework', 1),
+      ($2, 'General Discussion', 'General questions and discussions about the course', 0),
+      ($2, 'Code Review', 'Share your code and get feedback', 1)
+    ON CONFLICT DO NOTHING
+  `, [foundationMath.id, jsForBeginners.id])
+
   // ── Live classes ───────────────────────────────────────────────────────────
   await query(`
     INSERT INTO live_classes (course_id, title, date, duration, meet_url, status) VALUES
