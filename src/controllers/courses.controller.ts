@@ -100,73 +100,91 @@ export async function requestCourse(req: Request, res: Response, next: NextFunct
   } catch (err) { next(err) }
 }
 
-export async function enrollWithTeacher(req: Request, res: Response, next: NextFunction) {
+export async function getAvailableCoursesForEnrollment(req: Request, res: Response, next: NextFunction) {
   try {
-    const { preferredTeacherId, subjects } = req.body as {
-      preferredTeacherId?: string; subjects?: string[]
-    }
     const userId = req.user!.userId
+    const { teacherId } = req.query as { teacherId?: string }
 
-    if (!preferredTeacherId?.trim()) return fail(res, 'Please select a teacher', 400)
-    if (!Array.isArray(subjects) || subjects.length === 0 || subjects.some(s => !['mathematics', 'programming'].includes(s))) {
-      return fail(res, 'Select at least one valid subject', 400)
-    }
-
-    const useAutomaticMatching = preferredTeacherId === 'auto'
-
-    // Verify teacher exists and teaches the selected subjects
-    const { rows: teachers } = useAutomaticMatching
-      ? await query<{ name: string; subjects: string[] }>(
-          `SELECT 'Automatic matching' AS name, $1::text[] AS subjects`,
-          [subjects]
-        )
-      : await query<{ name: string; subjects: string[] }>(
-          `SELECT u.name, ARRAY_AGG(DISTINCT c.subject ORDER BY c.subject) AS subjects FROM users u
-           INNER JOIN courses c ON c.instructor_id = u.id
-           WHERE u.id = $1 AND u.status = 'active' AND c.status = 'published'
-           GROUP BY u.name`,
-          [preferredTeacherId]
-        )
-
-    if (!teachers[0] || subjects.some(subject => !teachers[0].subjects.includes(subject))) {
-      return fail(res, 'The selected teacher does not teach every chosen subject', 400)
-    }
-
-    // Enroll in one course per subject (the earliest published one not already enrolled)
-    const enrollmentQuery = useAutomaticMatching
-      ? `INSERT INTO enrollments (user_id, course_id)
-         SELECT $1, id FROM (
-           SELECT DISTINCT ON (subject) id FROM courses
-           WHERE status = 'published' AND subject = ANY($2::text[])
-             AND id NOT IN (SELECT course_id FROM enrollments WHERE user_id = $1)
-           ORDER BY subject, created_at ASC
-         ) AS matched_courses
-         ON CONFLICT (user_id, course_id) DO NOTHING
-         RETURNING course_id`
-      : `INSERT INTO enrollments (user_id, course_id)
-         SELECT $1, id FROM (
-           SELECT DISTINCT ON (subject) id FROM courses
-           WHERE status = 'published' AND instructor_id = $2 AND subject = ANY($3::text[])
-             AND id NOT IN (SELECT course_id FROM enrollments WHERE user_id = $1)
-           ORDER BY subject, created_at ASC
-         ) AS matched_courses
-         ON CONFLICT (user_id, course_id) DO NOTHING
-         RETURNING course_id`
-
-    const { rows: enrolled } = await query<{ course_id: string }>(
-      enrollmentQuery,
-      useAutomaticMatching ? [userId, subjects] : [userId, preferredTeacherId, subjects]
+    let { rows } = await query<{ id: string; title: string; subject: string; level: string; instructor_name: string; instructor_id: string }>(
+      `SELECT c.id, c.title, c.subject, c.level, u.name AS instructor_name, c.instructor_id
+       FROM courses c
+       JOIN users u ON u.id = c.instructor_id
+       WHERE c.status = 'published'
+         AND c.id NOT IN (SELECT course_id FROM enrollments WHERE user_id = $1)
+         ${teacherId ? 'AND c.instructor_id = $2' : ''}
+       ORDER BY c.subject, c.title`,
+      teacherId ? [userId, teacherId] : [userId]
     )
 
-    if (enrolled.length === 0) {
-      return fail(res, 'No new courses available for the selected subjects and teacher. You may already be enrolled in all matching courses.', 409)
+    return ok(res, rows.map(r => ({
+      id: r.id,
+      title: r.title,
+      subject: r.subject,
+      level: r.level,
+      instructorName: r.instructor_name,
+      instructorId: r.instructor_id,
+    })))
+  } catch (err) { next(err) }
+}
+
+export async function enrollInCourses(req: Request, res: Response, next: NextFunction) {
+  try {
+    const { courseIds } = req.body as { courseIds?: string[] }
+    const userId = req.user!.userId
+
+    if (!Array.isArray(courseIds) || courseIds.length === 0) {
+      return fail(res, 'Please select at least one course to enrol in', 400)
     }
 
-    return ok(res, {
-      enrolledCourses: enrolled.map(r => r.course_id),
-      teacherName: teachers[0].name,
-      subjects,
-    }, 201)
+    // Verify all courses exist, are published, and student isn't already enrolled
+    const { rows: validCourses } = await query<{ id: string; title: string; access_level: string; premium_enabled: boolean }>(
+      `SELECT id, title, access_level, premium_enabled FROM courses
+       WHERE id = ANY($1::uuid[]) AND status = 'published'`,
+      [courseIds]
+    )
+
+    if (validCourses.length !== courseIds.length) {
+      return fail(res, 'One or more selected courses are not available for enrolment', 400)
+    }
+
+    // Check for premium courses
+    const premiumCourses = validCourses.filter(c => c.access_level === 'premium')
+    if (premiumCourses.length > 0) {
+      const hasPremium = premiumCourses.some(c => !c.premium_enabled)
+      if (hasPremium) return fail(res, 'Premium access is temporarily unavailable for one of the selected courses', 403)
+
+      const { rows: subscriptions } = await query<{ id: string }>(
+        `SELECT id FROM subscriptions WHERE user_id = $1 AND status = 'active' AND ends_at > NOW() LIMIT 1`,
+        [userId]
+      )
+      if (!subscriptions[0]) return fail(res, 'An active Premium subscription is required to enrol in premium courses', 403)
+    }
+
+    // Check which courses the student is already enrolled in
+    const { rows: alreadyEnrolled } = await query<{ course_id: string }>(
+      'SELECT course_id FROM enrollments WHERE user_id = $1 AND course_id = ANY($2::uuid[])',
+      [userId, courseIds]
+    )
+
+    if (alreadyEnrolled.length > 0) {
+      return fail(res, 'You are already enrolled in one or more of the selected courses', 409)
+    }
+
+    // Enroll in all selected courses
+    const enrolledIds: string[] = []
+    for (const courseId of courseIds) {
+      const { rows } = await query<{ course_id: string }>(
+        `INSERT INTO enrollments (user_id, course_id) VALUES ($1, $2) ON CONFLICT DO NOTHING RETURNING course_id`,
+        [userId, courseId]
+      )
+      if (rows[0]) enrolledIds.push(rows[0].course_id)
+    }
+
+    if (enrolledIds.length === 0) {
+      return fail(res, 'Could not enrol in any of the selected courses', 409)
+    }
+
+    return ok(res, { enrolledCourses: enrolledIds, count: enrolledIds.length }, 201)
   } catch (err) { next(err) }
 }
 
