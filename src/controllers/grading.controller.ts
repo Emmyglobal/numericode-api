@@ -248,8 +248,8 @@ export async function getStudentGradeReport(req: Request, res: Response, next: N
     // Calculate grades for each category
     const categoryGrades = await Promise.all(
       categories.map(async (category) => {
-        // This is a simplified version - in production, you'd calculate based on actual submissions
-        const { rows: [avgScore] } = await query<{ avg_score: number | null }>(
+        // Get assignment submission scores
+        const { rows: [assignmentAvg] } = await query<{ avg_score: number | null }>(
           `SELECT AVG(s.score) as avg_score
            FROM submissions s
            JOIN assignments a ON a.id = s.assignment_id
@@ -257,11 +257,35 @@ export async function getStudentGradeReport(req: Request, res: Response, next: N
           [userId, courseId]
         )
         
+        // Get quiz attempt scores (completed/passed quizzes)
+        const { rows: [quizAvg] } = await query<{ avg_score: number | null }>(
+          `SELECT AVG(qa.score) as avg_score
+           FROM quiz_attempts qa
+           JOIN quizzes q ON q.id = qa.quiz_id
+           WHERE qa.user_id = $1 AND q.course_id = $2 AND qa.completed_at IS NOT NULL AND qa.score IS NOT NULL`,
+          [userId, courseId]
+        )
+        
+        // Combine scores: average of assignment and quiz scores
+        const assignmentScore = assignmentAvg?.avg_score ? Number(assignmentAvg.avg_score) : null
+        const quizScore = quizAvg?.avg_score ? Number(quizAvg.avg_score) : null
+        
+        let combinedScore: number
+        if (assignmentScore !== null && quizScore !== null) {
+          combinedScore = (assignmentScore + quizScore) / 2
+        } else if (assignmentScore !== null) {
+          combinedScore = assignmentScore
+        } else if (quizScore !== null) {
+          combinedScore = quizScore
+        } else {
+          combinedScore = 0
+        }
+        
         return {
           categoryId: category.id,
           categoryName: category.name,
           weight: Number(category.weight),
-          averageScore: avgScore?.avg_score ? Number(avgScore.avg_score) : 0,
+          averageScore: combinedScore,
         }
       })
     )

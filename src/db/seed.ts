@@ -109,6 +109,47 @@ async function seed() {
       ($3, $4, 'overdue')
   `, [assignments[0].id, assignments[1].id, assignments[2].id, kolade.id])
 
+  // ── Grade Categories ────────────────────────────────────────────────────────
+  await query(`
+    INSERT INTO grade_categories (course_id, name, weight) VALUES
+      ($1, 'Assignments', 60),
+      ($1, 'Quizzes', 40)
+    ON CONFLICT (course_id, name) DO NOTHING
+  `, [foundationMath.id])
+
+  // ── Quizzes with Questions ──────────────────────────────────────────────────
+  const { rows: quizzes } = await query<{ id: string }>(`
+    INSERT INTO quizzes (course_id, title, description, time_limit, passing_score, max_attempts, created_by)
+    VALUES
+      ($1, 'Numbers & Arithmetic Quiz', 'Test your knowledge of basic arithmetic operations.', 15, 60, 2, $2),
+      ($1, 'Fractions & Decimals Quiz', 'Assess your understanding of fractions and decimals.', 20, 70, 2, $2)
+    RETURNING id
+  `, [foundationMath.id, trainer.id])
+
+  // Quiz 1 Questions - Numbers & Arithmetic
+  await query(`
+    INSERT INTO quiz_questions (quiz_id, question_text, question_type, options, correct_answer, points, position) VALUES
+      ($1, 'What is the result of 15 + 27?', 'multiple_choice', 
+        '[{"id":"a","text":"42","isCorrect":true},{"id":"b","text":"32","isCorrect":false},{"id":"c","text":"52","isCorrect":false},{"id":"d","text":"37","isCorrect":false}]', 'a', 10, 0),
+      ($1, 'What is 144 divided by 12?', 'multiple_choice',
+        '[{"id":"a","text":"10","isCorrect":false},{"id":"b","text":"12","isCorrect":true},{"id":"c","text":"14","isCorrect":false},{"id":"d","text":"11","isCorrect":false}]', 'b', 10, 1),
+      ($1, 'The result of 7 × 8 is 56.', 'true_false', NULL, 'true', 10, 2),
+      ($1, 'What is the square root of 81?', 'fill_blank', NULL, '9', 15, 3),
+      ($1, 'If a triangle has sides 3, 4, and 5, is it a right triangle? (yes/no)', 'fill_blank', NULL, 'yes', 15, 4)
+  `, [quizzes[0].id])
+
+  // Quiz 2 Questions - Fractions & Decimals
+  await query(`
+    INSERT INTO quiz_questions (quiz_id, question_text, question_type, options, correct_answer, points, position) VALUES
+      ($1, 'What is 1/4 expressed as a decimal?', 'multiple_choice',
+        '[{"id":"a","text":"0.25","isCorrect":true},{"id":"b","text":"0.5","isCorrect":false},{"id":"c","text":"0.75","isCorrect":false},{"id":"d","text":"0.1","isCorrect":false}]', 'a', 10, 0),
+      ($1, 'What is 3/5 + 1/5?', 'multiple_choice',
+        '[{"id":"a","text":"3/10","isCorrect":false},{"id":"b","text":"4/5","isCorrect":true},{"id":"c","text":"2/5","isCorrect":false},{"id":"d","text":"4/10","isCorrect":false}]', 'b', 10, 1),
+      ($1, 'The decimal 0.75 is equal to 3/4.', 'true_false', NULL, 'true', 10, 2),
+      ($1, 'What is 0.2 as a fraction in simplest form? (e.g. 1/5)', 'fill_blank', NULL, '1/5', 15, 3),
+      ($1, 'Explain how to convert a fraction to a decimal in your own words.', 'essay', NULL, NULL, 15, 4)
+  `, [quizzes[1].id])
+
   // ── Announcements ──────────────────────────────────────────────────────────
   await query(`
     INSERT INTO announcements (title, body, audience, created_by) VALUES
