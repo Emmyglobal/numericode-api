@@ -1,6 +1,7 @@
 import type { Request, Response, NextFunction } from 'express'
 import bcrypt from 'bcryptjs'
 import crypto from 'crypto'
+import { google } from 'googleapis'
 import { getClient, query } from '../db/pool'
 import { signToken } from '../utils/jwt'
 import { ok, fail, unauthorized } from '../utils/response'
@@ -386,5 +387,130 @@ export async function changePassword(req: Request, res: Response, next: NextFunc
     await query('UPDATE users SET password_hash = $1 WHERE id = $2', [passwordHash, req.user.userId])
 
     return ok(res, { message: 'Password changed successfully' }, 200)
+  } catch (err) { next(err) }
+}
+
+// ─── Google OAuth ──────────────────────────────────────────────────────────────
+
+const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID
+const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET
+const GOOGLE_REDIRECT_URI = process.env.GOOGLE_REDIRECT_URI
+
+function getOAuth2Client() {
+  if (!GOOGLE_CLIENT_ID || !GOOGLE_CLIENT_SECRET || !GOOGLE_REDIRECT_URI) {
+    throw new Error('Google OAuth environment variables are not configured')
+  }
+  return new google.auth.OAuth2(GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, GOOGLE_REDIRECT_URI)
+}
+
+/**
+ * Returns the Google OAuth consent URL.
+ * The frontend redirects the browser to this URL to start the OAuth flow.
+ */
+export async function getGoogleAuthUrl(_req: Request, res: Response, next: NextFunction) {
+  try {
+    const oauth2Client = getOAuth2Client()
+    const url = oauth2Client.generateAuthUrl({
+      access_type: 'online',
+      scope: ['profile', 'email'],
+    })
+    return ok(res, { url })
+  } catch (err) { next(err) }
+}
+
+/**
+ * Google OAuth callback handler.
+ * Exchanges the authorization code for tokens, retrieves user info,
+ * creates or links the user, and redirects to the frontend with a JWT.
+ */
+export async function googleCallback(req: Request, res: Response, next: NextFunction) {
+  try {
+    const { code } = req.query as { code?: string }
+    if (!code) {
+      return res.redirect(`${process.env.CLIENT_URL}/login?error=google_no_code`)
+    }
+
+    const oauth2Client = getOAuth2Client()
+
+    // Exchange the authorization code for access tokens
+    const { tokens } = await oauth2Client.getToken(code)
+    oauth2Client.setCredentials(tokens)
+
+    // Retrieve the user's profile from Google
+    const oauth2 = google.oauth2({ version: 'v2', auth: oauth2Client })
+    const { data: profile } = await oauth2.userinfo.get()
+
+    const googleId = profile.id
+    const email = profile.email
+
+    if (!email) {
+      return res.redirect(`${process.env.CLIENT_URL}/login?error=google_no_email`)
+    }
+
+    const name = profile.name || email.split('@')[0]
+    const avatarUrl = profile.picture || null
+
+    // ── Find or create the user ──────────────────────────────────────────
+    let user: UserRow
+
+    // 1. Try to find by Google ID
+    const { rows: byGoogleId } = await query<UserRow>(
+      'SELECT * FROM users WHERE google_id = $1',
+      [googleId]
+    )
+    if (byGoogleId.length > 0) {
+      user = byGoogleId[0]
+    } else {
+      // 2. Try to find by email (link Google ID to existing account)
+      const { rows: byEmail } = await query<UserRow>('SELECT * FROM users WHERE email = $1', [email])
+      if (byEmail.length > 0) {
+        user = byEmail[0]
+        await query('UPDATE users SET google_id = $1 WHERE id = $2', [googleId, user.id])
+      } else {
+        // 3. Create a new user — auto-approved since Google is a trusted IdP
+        const placeholderHash = await bcrypt.hash(crypto.randomBytes(32).toString('hex'), 10)
+        const { rows: newRows } = await query<UserRow>(
+          `INSERT INTO users (name, email, password_hash, role, status, account_activated, avatar_url, google_id)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING *`,
+          [name, email, placeholderHash, 'student', 'active', true, avatarUrl, googleId]
+        )
+        user = newRows[0]
+
+        // Notify admins about the new Google sign-up
+        await notifyRole(
+          'admin',
+          'New Google sign-up',
+          `${user.name} (${user.email}) signed up via Google and was auto-approved.`,
+          'announcement',
+          '/admin/users'
+        ).catch(() => {})
+      }
+    }
+
+    // Update last active timestamp
+    await query('UPDATE users SET last_active = NOW() WHERE id = $1', [user.id])
+
+    // Generate JWT and redirect to the frontend callback route
+    const token = signToken(user.id, user.role)
+    const redirectUrl = new URL(`${process.env.CLIENT_URL}/auth/google/callback`)
+    redirectUrl.searchParams.set('token', token)
+    return res.redirect(redirectUrl.toString())
+  } catch (err) {
+    console.error('Google OAuth callback error:', err)
+    return res.redirect(`${process.env.CLIENT_URL}/login?error=google_auth_failed`)
+  }
+}
+
+/**
+ * Returns the currently authenticated user.
+ * Used by the frontend callback page to fetch the full user profile
+ * after storing the JWT received from the Google OAuth redirect.
+ */
+export async function getCurrentUser(req: Request, res: Response, next: NextFunction) {
+  try {
+    if (!req.user?.userId) return unauthorized(res)
+    const { rows } = await query<UserRow>('SELECT * FROM users WHERE id = $1', [req.user.userId])
+    if (rows.length === 0) return unauthorized(res)
+    return ok(res, { user: toAuthUser(rows[0]) })
   } catch (err) { next(err) }
 }
