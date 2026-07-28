@@ -66,11 +66,71 @@ export async function getLearningAnalytics(req: Request, res: Response, next: Ne
     const totalTimeSpent = rows.reduce((sum, row) => sum + Number(row.time_spent), 0)
     const totalInteractions = rows.reduce((sum, row) => sum + Number(row.interactions), 0)
 
+    // Get quiz performance metrics
+    const { rows: [quizStats] } = await query<{
+      total_quizzes: string; completed_quizzes: string; average_score: string | null
+    }>(
+      `SELECT 
+        COUNT(DISTINCT q.id) as total_quizzes,
+        COUNT(DISTINCT qa.id) FILTER (WHERE qa.completed_at IS NOT NULL) as completed_quizzes,
+        AVG(qa.score) as average_score
+       FROM quizzes q
+       LEFT JOIN quiz_attempts qa ON qa.quiz_id = q.id AND qa.user_id = $1 AND qa.completed_at IS NOT NULL
+       WHERE q.course_id = $2`,
+      [userId, courseId]
+    )
+
+    // Get forum activity metrics
+    const { rows: [forumStats] } = await query<{ thread_count: string; post_count: string }>(
+      `SELECT
+        COUNT(DISTINCT ft.id) as thread_count,
+        COUNT(DISTINCT fp.id) as post_count
+       FROM forum_categories fc
+       LEFT JOIN forum_threads ft ON ft.category_id = fc.id AND ft.user_id = $1
+       LEFT JOIN forum_posts fp ON fp.thread_id = ft.id AND fp.user_id = $1
+       WHERE fc.course_id = $2`,
+      [userId, courseId]
+    )
+
+    // Get grade performance
+    const { rows: [gradeStats] } = await query<{ overall_grade: string | null; letter_grade: string }>(
+      `SELECT 
+        CASE WHEN COUNT(qa.id) > 0 OR COUNT(s.id) > 0
+          THEN ROUND(
+            (COALESCE(AVG(s.score), 0) + COALESCE(AVG(qa.score), 0)) / 
+            CASE 
+              WHEN COUNT(s.id) > 0 AND COUNT(qa.id) > 0 THEN 2
+              WHEN COUNT(s.id) > 0 OR COUNT(qa.id) > 0 THEN 1
+              ELSE 1
+            END, 2)
+          ELSE NULL
+        END as overall_grade,
+        CASE 
+          WHEN COUNT(qa.id) > 0 OR COUNT(s.id) > 0 THEN 'N/A'
+          ELSE 'N/A'
+        END as letter_grade
+       FROM quizzes q
+       FULL JOIN quiz_attempts qa ON qa.quiz_id = q.id AND qa.user_id = $1 AND qa.completed_at IS NOT NULL AND q.course_id = $2
+       FULL JOIN submissions s ON s.user_id = $1 AND s.status = 'graded'
+       FULL JOIN assignments a ON a.id = s.assignment_id AND a.course_id = $2`,
+      [userId, courseId]
+    )
+
     return ok(res, {
       courseId,
       courseTitle: rows[0]?.course_title || '',
       totalTimeSpent,
       totalInteractions,
+      quizMetrics: {
+        totalQuizzes: Number(quizStats?.total_quizzes || 0),
+        completedQuizzes: Number(quizStats?.completed_quizzes || 0),
+        averageScore: quizStats?.average_score ? Number(quizStats.average_score) : null,
+      },
+      forumMetrics: {
+        threadsCreated: Number(forumStats?.thread_count || 0),
+        postsMade: Number(forumStats?.post_count || 0),
+      },
+      overallGrade: gradeStats?.overall_grade ? Number(gradeStats.overall_grade) : null,
       lessonAnalytics: rows.map(r => ({
         id: r.id,
         lessonId: r.lesson_id,

@@ -150,6 +150,57 @@ async function seed() {
       ($1, 'Explain how to convert a fraction to a decimal in your own words.', 'essay', NULL, NULL, 15, 4)
   `, [quizzes[1].id])
 
+  // ── Learning Analytics ──────────────────────────────────────────────────────
+  // Get lessons to reference for analytics
+  const { rows: lessons } = await query<{ id: string }>(
+    'SELECT id FROM lessons LIMIT 3'
+  )
+
+  if (lessons.length > 0) {
+    await query(`
+      INSERT INTO learning_analytics (user_id, course_id, lesson_id, time_spent, interactions, last_accessed)
+      VALUES
+        ($1, $2, $3, 3600, 45, NOW() - INTERVAL '2 days'),
+        ($1, $2, $4, 2400, 28, NOW() - INTERVAL '1 day'),
+        ($1, $2, $5, 1800, 15, NOW()),
+        ($3, $2, $3, 7200, 80, NOW() - INTERVAL '3 days')
+      ON CONFLICT (user_id, course_id, lesson_id) DO NOTHING
+    `, [kolade.id, foundationMath.id, lessons[0].id, lessons[1].id, lessons[2].id, amaka.id])
+  }
+
+  // Complete a quiz attempt for analytics/grade demo
+  const { rows: existingQuizzes } = await query<{ id: string }>(
+    'SELECT id FROM quizzes WHERE course_id = $1 LIMIT 1',
+    [foundationMath.id]
+  )
+  if (existingQuizzes.length > 0) {
+    // Get the questions for this quiz
+    const { rows: quizQuestions } = await query<{ id: string; question_type: string; correct_answer: string | null }>(
+      'SELECT id, question_type, correct_answer FROM quiz_questions WHERE quiz_id = $1 AND question_type != $2',
+      [existingQuizzes[0].id, 'essay']
+    )
+
+    if (quizQuestions.length > 0) {
+      // Build sample answers
+      const sampleAnswers: Record<string, string> = {}
+      for (const q of quizQuestions) {
+        if (q.correct_answer) {
+          sampleAnswers[q.id] = q.correct_answer
+        } else {
+          sampleAnswers[q.id] = quizQuestions[0].correct_answer || ''
+        }
+      }
+
+      // Create a completed attempt
+      await query(
+        `INSERT INTO quiz_attempts (quiz_id, user_id, completed_at, score, passed, answers)
+         VALUES ($1, $2, NOW(), 85.00, TRUE, $3)
+         ON CONFLICT (quiz_id, user_id, started_at) DO NOTHING`,
+        [existingQuizzes[0].id, kolade.id, JSON.stringify(sampleAnswers)]
+      )
+    }
+  }
+
   // ── Announcements ──────────────────────────────────────────────────────────
   await query(`
     INSERT INTO announcements (title, body, audience, created_by) VALUES
