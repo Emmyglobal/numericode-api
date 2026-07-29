@@ -10,7 +10,9 @@ export async function getStats(_req: Request, res: Response, next: NextFunction)
   try {
     const [{ rows: totalUsers }, { rows: students }, { rows: trainers },
            { rows: courses }, { rows: activeCourses }, { rows: sessions },
-           { rows: enrolments }, { rows: pendingTrainers }] = await Promise.all([
+           { rows: enrolments }, { rows: pendingTrainers },
+           { rows: thisMonthUsers }, { rows: lastMonthUsers },
+           { rows: thisMonthEnrolments }, { rows: lastMonthEnrolments }] = await Promise.all([
       query<{ count: string }>(`SELECT COUNT(*) FROM users`),
       query<{ count: string }>(`SELECT COUNT(*) FROM users WHERE role = 'student'`),
       query<{ count: string }>(`SELECT COUNT(*) FROM users WHERE role = 'trainer'`),
@@ -19,7 +21,25 @@ export async function getStats(_req: Request, res: Response, next: NextFunction)
       query<{ count: string }>(`SELECT COUNT(*) FROM live_classes`),
       query<{ count: string }>(`SELECT COUNT(*) FROM enrollments`),
       query<{ count: string }>(`SELECT COUNT(*) FROM users WHERE role = 'trainer' AND status = 'pending'`),
+      // Users created this month
+      query<{ count: string }>(`SELECT COUNT(*) FROM users WHERE created_at >= date_trunc('month', NOW())`),
+      // Users created last month
+      query<{ count: string }>(`SELECT COUNT(*) FROM users WHERE created_at >= date_trunc('month', NOW() - INTERVAL '1 month') AND created_at < date_trunc('month', NOW())`),
+      // Enrollments this month
+      query<{ count: string }>(`SELECT COUNT(*) FROM enrollments WHERE enrolled_at >= date_trunc('month', NOW())`),
+      // Enrollments last month
+      query<{ count: string }>(`SELECT COUNT(*) FROM enrollments WHERE enrolled_at >= date_trunc('month', NOW() - INTERVAL '1 month') AND enrolled_at < date_trunc('month', NOW())`),
     ])
+
+    // Calculate growth rate based on user signups compared to last month
+    const thisMonthCount = Number(thisMonthUsers[0].count) + Number(thisMonthEnrolments[0].count)
+    const lastMonthCount = Number(lastMonthUsers[0].count) + Number(lastMonthEnrolments[0].count)
+    let platformGrowth = 0
+    if (lastMonthCount > 0) {
+      platformGrowth = Math.round(((thisMonthCount - lastMonthCount) / lastMonthCount) * 100)
+    } else if (thisMonthCount > 0) {
+      platformGrowth = 100
+    }
 
     return ok(res, {
       totalUsers:        Number(totalUsers[0].count),
@@ -30,7 +50,7 @@ export async function getStats(_req: Request, res: Response, next: NextFunction)
       totalLiveSessions: Number(sessions[0].count),
       totalEnrolments:   Number(enrolments[0].count),
       pendingTrainers:   Number(pendingTrainers[0].count),
-      platformGrowth:    23, // Placeholder — requires historical snapshot table for real calculation
+      platformGrowth,
     })
   } catch (err) { next(err) }
 }

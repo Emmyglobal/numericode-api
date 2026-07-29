@@ -7,6 +7,7 @@ import {
   getTrainerProfile, updateTrainerProfile,
   getTrainerLessons,
 } from '../controllers/trainer.controller'
+import { getAnnouncements } from '../controllers/dashboard.controller'
 import {
   getTrainerNotes, createTrainerNote, updateTrainerNote, deleteTrainerNote, getCourseNotes,
   createTrainerSession, updateTrainerSession, deleteTrainerSession,
@@ -32,6 +33,7 @@ router.post('/notes',             ...guard, createTrainerNote)
 router.put('/notes/:id',          ...guard, updateTrainerNote)
 router.delete('/notes/:id',       ...guard, deleteTrainerNote)
 router.get('/notes/courses/:courseId', ...guard, getCourseNotes)
+router.get('/announcements',      ...guard, getAnnouncements)
 router.get('/profile',            ...guard, getTrainerProfile)
 router.put('/profile',            ...guard, updateTrainerProfile)
 
