@@ -59,6 +59,7 @@ try {
         id        UUID PRIMARY KEY DEFAULT gen_random_uuid(),
         module_id UUID NOT NULL REFERENCES modules(id) ON DELETE CASCADE,
         title     VARCHAR(255) NOT NULL,
+        content   TEXT NOT NULL DEFAULT '',
         duration  INTEGER NOT NULL DEFAULT 0,
         position  INTEGER NOT NULL DEFAULT 0,
         UNIQUE(module_id, position)
@@ -557,6 +558,9 @@ try {
         created_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
         UNIQUE(assignment_id)
       );
+
+      -- Add content column to lessons if not exists (for existing databases)
+      ALTER TABLE lessons ADD COLUMN IF NOT EXISTS content TEXT NOT NULL DEFAULT '';
     `);
 
     console.log('Migrations completed successfully!');
