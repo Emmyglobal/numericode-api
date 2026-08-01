@@ -5,7 +5,8 @@ import {
   createLesson, updateLesson, deleteLesson,
   createQuiz, updateQuiz, deleteQuiz,
   createAssignment, updateAssignment, deleteAssignment,
-  getLessons, getCourseBuilderContent
+  getLessons, getCourseBuilderContent,
+  getQuizDetail, getAssignmentDetail
 } from '../controllers/course-content.controller'
 
 const router = Router()
@@ -25,5 +26,7 @@ router.post('/lessons/:lessonId/assignment', ...guard, createAssignment)
 router.put('/assignments/:assignmentId', ...guard, updateAssignment)
 router.delete('/assignments/:assignmentId', ...guard, deleteAssignment)
 router.get('/lessons/:lessonId', ...guard, getLessons)
+router.get('/quizzes/:quizId', ...guard, getQuizDetail)
+router.get('/assignments/:assignmentId', ...guard, getAssignmentDetail)
 
 export default router

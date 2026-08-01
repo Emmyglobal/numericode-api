@@ -345,6 +345,68 @@ export async function updateAssignment(req: Request, res: Response, next: NextFu
   } catch (err) { next(err) }
 }
 
+export async function getQuizDetail(req: Request, res: Response, next: NextFunction) {
+  try {
+    const quizId = req.params.quizId
+    const { rows: [quiz] } = await query(
+      `SELECT q.*, c.instructor_id FROM quizzes q
+       JOIN courses c ON c.id = q.course_id WHERE q.id = $1`,
+      [quizId]
+    )
+    if (!quiz) return notFound(res, 'Quiz not found')
+    if (!isAdmin(req) && quiz.instructor_id !== req.user!.userId) return forbidden(res, 'Access denied')
+
+    const { rows: questions } = await query(
+      'SELECT * FROM quiz_questions WHERE quiz_id = $1 ORDER BY position',
+      [quizId]
+    )
+
+    return ok(res, {
+      id: quiz.id,
+      title: quiz.title,
+      description: quiz.description,
+      lessonId: quiz.lesson_id,
+      passingScore: Number(quiz.passing_score),
+      timeLimit: quiz.time_limit,
+      maxAttempts: quiz.max_attempts,
+      shuffleQuestions: quiz.shuffle_questions,
+      showResults: quiz.show_results,
+      questions: questions.map((q: any) => ({
+        id: q.id,
+        questionText: q.question_text,
+        questionType: q.question_type,
+        options: q.options,
+        correctAnswer: q.correct_answer,
+        points: Number(q.points),
+        position: q.position,
+      })),
+    })
+  } catch (err) { next(err) }
+}
+
+export async function getAssignmentDetail(req: Request, res: Response, next: NextFunction) {
+  try {
+    const assignmentId = req.params.assignmentId
+    const { rows: [assignment] } = await query<any>(
+      `SELECT a.*, c.instructor_id FROM assignments a
+       JOIN courses c ON c.id = a.course_id WHERE a.id = $1`,
+      [assignmentId]
+    )
+    if (!assignment) return notFound(res, 'Assignment not found')
+    if (!isAdmin(req) && assignment.instructor_id !== req.user!.userId) return forbidden(res, 'Access denied')
+
+    return ok(res, {
+      id: assignment.id,
+      title: assignment.title,
+      description: assignment.description,
+      lessonId: assignment.lesson_id,
+      dueDate: assignment.due_date instanceof Date ? assignment.due_date.toISOString().slice(0, 10) : '',
+      totalMarks: Number(assignment.total_marks),
+      passingScore: Number(assignment.passing_score),
+    })
+  } catch (err) { next(err) }
+}
+
 export async function deleteAssignment(req: Request, res: Response, next: NextFunction) {
   try {
     const assignmentId = req.params.assignmentId

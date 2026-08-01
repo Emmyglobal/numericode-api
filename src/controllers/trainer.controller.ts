@@ -1,8 +1,8 @@
 import type { Request, Response, NextFunction } from 'express'
 import { query } from '../db/pool'
 import { ok, fail, notFound, forbidden } from '../utils/response'
-import { notifyAudience } from '../utils/notify'
-import type { CourseRow, LiveClassRow, AssignmentRow, UserRow } from '../types'
+import { notifyAudience, notifyUser } from '../utils/notify'
+import type { CourseRow, LiveClassRow, AssignmentRow, UserRow, AnnouncementRow } from '../types'
 
 export async function getStats(req: Request, res: Response, next: NextFunction) {
   try {
@@ -239,5 +239,30 @@ export async function updateTrainerCourseStatus(req: Request, res: Response, nex
     }
 
     return ok(res, { id: c.id, status: c.status })
+  } catch (err) { next(err) }
+}
+
+export async function createTrainerAnnouncement(req: Request, res: Response, next: NextFunction) {
+  try {
+    const { title, body, audience } = req.body as { title?: string; body?: string; audience?: string }
+    if (!title || !body) return fail(res, 'Title and body are required', 400)
+
+    // Trainers can only send to their students or all (students only)
+    const validAudiences = ['all', 'students']
+    const finalAudience = validAudiences.includes(audience ?? '') ? audience! : 'students'
+
+    const { rows } = await query<AnnouncementRow>(
+      `INSERT INTO announcements (title, body, audience, created_by) VALUES ($1, $2, $3, $4) RETURNING *`,
+      [title, body, finalAudience, req.user!.userId]
+    )
+    const a = rows[0]
+
+    // Send in-app notifications to the target audience
+    await notifyAudience(finalAudience as 'all' | 'students', a.title, a.body, 'announcement')
+
+    return ok(res, {
+      id: a.id, title: a.title, body: a.body, audience: a.audience,
+      createdAt: a.created_at.toISOString(),
+    }, 201)
   } catch (err) { next(err) }
 }
