@@ -29,6 +29,8 @@ export interface ResourceRow  { id: string; lesson_id: string; title: string; ty
 export interface LiveClassRow {
   id: string; course_id: string; title: string; date: Date
   duration: number; meet_url: string; status: SessionStatus; attendees: number
+  session_type: 'group' | 'individual'; student_ids: string[]; extension_minutes: number
+  start_time: Date | null; end_time: Date | null
 }
 export interface EnrollmentRow { id: string; user_id: string; course_id: string; progress: number; enrolled_at: Date }
 export interface LessonCompletionRow { id: string; user_id: string; lesson_id: string; completed_at: Date }

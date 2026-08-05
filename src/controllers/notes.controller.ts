@@ -2,6 +2,7 @@ import type { Request, Response, NextFunction } from 'express'
 import { query } from '../db/pool'
 import { ok, fail, notFound, forbidden } from '../utils/response'
 import { createMeetingLink } from '../utils/meeting'
+import { notifyUser } from '../utils/notify'
 
 interface CourseNoteRow {
   id: string
@@ -148,8 +149,9 @@ export async function getCourseNotes(req: Request, res: Response, next: NextFunc
 // ─── POST /api/trainer/sessions ──────────────────────────────────────────────
 export async function createTrainerSession(req: Request, res: Response, next: NextFunction) {
   try {
-    const { courseId, title, date, duration, meetUrl } = req.body as {
+    const { courseId, title, date, duration, meetUrl, sessionType, studentIds, extensionMinutes } = req.body as {
       courseId?: string; title?: string; date?: string; duration?: number; meetUrl?: string
+      sessionType?: 'group' | 'individual'; studentIds?: string[]; extensionMinutes?: number
     }
     if (!courseId || !title || !date) return fail(res, 'courseId, title, and date are required', 400)
 
@@ -171,24 +173,45 @@ export async function createTrainerSession(req: Request, res: Response, next: Ne
         })
         finalMeetUrl = meeting.url
       } catch (meetingError) {
-        // Continue without meeting link - trainer can add it later
         console.error('Failed to auto-generate meeting link:', meetingError)
       }
     }
 
+    const startTime = new Date(date)
+    const endTime = new Date(startTime.getTime() + (duration ?? 60) * 60000 + (extensionMinutes ?? 0) * 60000)
+
+    const finalSessionType = sessionType === 'individual' ? 'individual' : 'group'
+    const finalStudentIds = finalSessionType === 'individual' ? (studentIds ?? []) : '{}'
+
     const { rows } = await query<{
       id: string; course_id: string; title: string; date: Date
       duration: number; meet_url: string; status: string; attendees: number
+      session_type: string; student_ids: string[]; extension_minutes: number
+      start_time: Date | null; end_time: Date | null
     }>(
-      `INSERT INTO live_classes (course_id, title, date, duration, meet_url, status)
-       VALUES ($1, $2, $3, $4, $5, 'scheduled') RETURNING *`,
-      [courseId, title, new Date(date), duration ?? 60, finalMeetUrl]
+      `INSERT INTO live_classes (course_id, title, date, duration, meet_url, status, session_type, student_ids, extension_minutes, start_time, end_time)
+       VALUES ($1, $2, $3, $4, $5, 'scheduled', $6, $7, $8, $9, $10) RETURNING *`,
+      [courseId, title, startTime, duration ?? 60, finalMeetUrl, finalSessionType, finalStudentIds, extensionMinutes ?? 0, startTime, endTime]
     )
     const s = rows[0]
+    // Notify targeted students
+    const targetStudentIds = finalSessionType === 'individual' ? finalStudentIds : undefined
+    const notifyQuery = targetStudentIds?.length
+      ? `SELECT id AS user_id FROM users WHERE id = ANY($2::uuid[]) AND role = 'student'`
+      : `SELECT e.user_id FROM enrollments e WHERE e.course_id = $1`
+    const notifyParams = targetStudentIds?.length ? [courseId, finalStudentIds] : [courseId]
+    const { rows: studentRows } = await query<{ user_id: string }>(notifyQuery, notifyParams)
+    await Promise.all(studentRows.map(r =>
+      notifyUser(r.user_id, 'New Live Class Scheduled',
+        `"${s.title}" has been scheduled. Check your dashboard for details.`,
+        'announcement', `/dashboard/live-classes`)
+    ))
     return ok(res, {
       id: s.id, courseId: s.course_id, title: s.title,
       date: s.date.toISOString(), duration: s.duration,
       meetUrl: s.meet_url, status: s.status, attendees: s.attendees,
+      sessionType: s.session_type, studentIds: s.student_ids, extensionMinutes: s.extension_minutes,
+      startTime: s.start_time?.toISOString() ?? null, endTime: s.end_time?.toISOString() ?? null,
     }, 201)
   } catch (err) { next(err) }
 }
@@ -196,7 +219,7 @@ export async function createTrainerSession(req: Request, res: Response, next: Ne
 // ─── PUT /api/trainer/sessions/:id ───────────────────────────────────────────
 export async function updateTrainerSession(req: Request, res: Response, next: NextFunction) {
   try {
-    const { rows: existing } = await query<{ course_id: string; instructor_id: string; title: string; date: Date; duration: number; meet_url: string }>(
+    const { rows: existing } = await query<{ course_id: string; instructor_id: string; title: string; date: Date; duration: number; meet_url: string; session_type: string; student_ids: string[]; extension_minutes: number }>(
       `SELECT lc.*, c.instructor_id FROM live_classes lc
        JOIN courses c ON c.id = lc.course_id WHERE lc.id = $1`,
       [req.params.id]
@@ -204,8 +227,9 @@ export async function updateTrainerSession(req: Request, res: Response, next: Ne
     if (!existing[0]) return notFound(res, 'Session not found')
     if (existing[0].instructor_id !== req.user!.userId) return forbidden(res, 'You can only edit your own sessions')
 
-    const { title, date, duration, meetUrl, status } = req.body as {
+    const { title, date, duration, meetUrl, status, sessionType, studentIds, extensionMinutes } = req.body as {
       title?: string; date?: string; duration?: number; meetUrl?: string; status?: string
+      sessionType?: 'group' | 'individual'; studentIds?: string[]; extensionMinutes?: number
     }
 
     // Auto-generate meeting link if meetUrl is being cleared or not provided
@@ -228,22 +252,42 @@ export async function updateTrainerSession(req: Request, res: Response, next: Ne
       }
     }
 
+    const startTime = date ? new Date(date) : existing[0].date
+    const endTime = new Date(startTime.getTime() + (duration ?? existing[0].duration) * 60000 + (extensionMinutes ?? 0) * 60000)
+    const finalSessionType = sessionType === 'individual' ? 'individual' : existing[0].session_type || 'group'
+    const finalStudentIds = finalSessionType === 'individual' ? (studentIds ?? []) : '{}'
+
     const { rows } = await query<{
       id: string; course_id: string; title: string; date: Date
       duration: number; meet_url: string; status: string; attendees: number
+      session_type: string; student_ids: string[]; extension_minutes: number
+      start_time: Date | null; end_time: Date | null
     }>(
       `UPDATE live_classes SET
         title = COALESCE($1, title), date = COALESCE($2, date),
         duration = COALESCE($3, duration), meet_url = COALESCE($4, meet_url),
-        status = COALESCE($5, status)
-       WHERE id = $6 RETURNING *`,
-      [title, date ? new Date(date) : undefined, duration, finalMeetUrl, status, req.params.id]
+        status = COALESCE($5, status), session_type = COALESCE($6, session_type),
+        student_ids = COALESCE($7, student_ids), extension_minutes = COALESCE($8, extension_minutes),
+        start_time = COALESCE($9, start_time), end_time = COALESCE($10, end_time)
+       WHERE id = $11 RETURNING *`,
+      [title, date ? new Date(date) : undefined, duration, finalMeetUrl, status, finalSessionType, finalStudentIds, extensionMinutes ?? 0, startTime, endTime, req.params.id]
     )
     const s = rows[0]
+    // Notify enrolled students about the updated session
+    const { rows: studentRows } = await query<{ user_id: string }>(
+      `SELECT e.user_id FROM enrollments e WHERE e.course_id = $1`, [s.course_id]
+    )
+    await Promise.all(studentRows.map(r =>
+      notifyUser(r.user_id, 'Live Class Updated',
+        `"${s.title}" has been updated. Check your dashboard for the latest details.`,
+        'announcement', `/dashboard/live-classes`)
+    ))
     return ok(res, {
       id: s.id, courseId: s.course_id, title: s.title,
       date: s.date.toISOString(), duration: s.duration,
       meetUrl: s.meet_url, status: s.status, attendees: s.attendees,
+      sessionType: s.session_type, studentIds: s.student_ids, extensionMinutes: s.extension_minutes,
+      startTime: s.start_time?.toISOString() ?? null, endTime: s.end_time?.toISOString() ?? null,
     })
   } catch (err) { next(err) }
 }
@@ -259,6 +303,17 @@ export async function deleteTrainerSession(req: Request, res: Response, next: Ne
     if (!existing[0]) return notFound(res, 'Session not found')
     if (existing[0].instructor_id !== req.user!.userId) return forbidden(res, 'You can only delete your own sessions')
 
+    // Notify enrolled students before deleting
+    const { rows: studentRows } = await query<{ user_id: string; course_id: string }>(
+      `SELECT e.user_id, lc.course_id FROM live_classes lc
+       JOIN enrollments e ON e.course_id = lc.course_id WHERE lc.id = $1`,
+      [req.params.id]
+    )
+    await Promise.all(studentRows.map(r =>
+      notifyUser(r.user_id, 'Live Class Cancelled',
+        `A live class has been cancelled. Please check your dashboard for updates.`,
+        'announcement', `/dashboard/live-classes`)
+    ))
     await query('DELETE FROM live_classes WHERE id = $1', [req.params.id])
     return ok(res, { deleted: true })
   } catch (err) { next(err) }

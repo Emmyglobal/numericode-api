@@ -82,8 +82,13 @@ try {
         date      TIMESTAMPTZ NOT NULL,
         duration  INTEGER NOT NULL DEFAULT 60,
         meet_url  VARCHAR(512) NOT NULL,
-        status    VARCHAR(20)  NOT NULL DEFAULT 'scheduled' CHECK (status IN ('scheduled','live','completed')),
-        attendees INTEGER NOT NULL DEFAULT 0
+        status    VARCHAR(20)  NOT NULL DEFAULT 'scheduled' CHECK (status IN ('scheduled','live','completed','expired')),
+        attendees INTEGER NOT NULL DEFAULT 0,
+        session_type VARCHAR(20) NOT NULL DEFAULT 'group' CHECK (session_type IN ('group','individual')),
+        student_ids UUID[] NOT NULL DEFAULT '{}',
+        extension_minutes INTEGER NOT NULL DEFAULT 0,
+        start_time TIMESTAMPTZ,
+        end_time   TIMESTAMPTZ
       );
 
       -- Enrollments
