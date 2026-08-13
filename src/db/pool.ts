@@ -1,17 +1,8 @@
 import 'dotenv/config'
-import { Pool, PoolConfig } from 'pg'
-import url from 'url'
+import { Pool } from 'pg'
 
-// Parse connection string and ensure IPv4 only
-const connectionString = process.env.DATABASE_URL || ''
-const parsedUrl = url.parse(connectionString, true)
-
-const poolConfig: PoolConfig & { family?: number } = {
-  user: parsedUrl.auth?.split(':')[0],
-  password: parsedUrl.auth?.split(':')[1],
-  host: parsedUrl.hostname || 'localhost',
-  port: parseInt(parsedUrl.port || '5432'),
-  database: parsedUrl.pathname?.slice(1) || 'postgres',
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
   ssl: {
     rejectUnauthorized: false,
   },
@@ -20,10 +11,7 @@ const poolConfig: PoolConfig & { family?: number } = {
   connectionTimeoutMillis: 10000,
   keepAlives: true,
   keepalivesIdle: 30,
-  family: 4, // Force IPv4 connection
-} as any
-
-const pool = new Pool(poolConfig);
+});
 
 pool.on('error', (err) => {
   console.error('PostgreSQL pool error:', err)
