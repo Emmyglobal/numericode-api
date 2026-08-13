@@ -1,16 +1,27 @@
 import 'dotenv/config'
 import { Pool, PoolConfig } from 'pg'
+import url from 'url'
+
+// Parse connection string and ensure IPv4 only
+const connectionString = process.env.DATABASE_URL || ''
+const parsedUrl = url.parse(connectionString, true)
 
 const poolConfig: PoolConfig & { family?: number } = {
-  connectionString: process.env.DATABASE_URL,
+  user: parsedUrl.auth?.split(':')[0],
+  password: parsedUrl.auth?.split(':')[1],
+  host: parsedUrl.hostname || 'localhost',
+  port: parseInt(parsedUrl.port || '5432'),
+  database: parsedUrl.pathname?.slice(1) || 'postgres',
   ssl: {
     rejectUnauthorized: false,
   },
   max: 20,
   idleTimeoutMillis: 30000,
   connectionTimeoutMillis: 10000,
-  family: 4, // Prefer IPv4 (important for Render + Supabase compatibility)
-}
+  keepAlives: true,
+  keepalivesIdle: 30,
+  family: 4, // Force IPv4 connection
+} as any
 
 const pool = new Pool(poolConfig);
 
