@@ -77,8 +77,18 @@ async function getPool(): Promise<Pool> {
         try {
           const { address } = await dnsPromises.lookup(hostname, { family: 4 })
           if (address) host = address
-        } catch {
-          // no A record — keep the hostname
+        } catch (err) {
+          // No IPv4 (A) record. For a remote DB this means the host only has
+          // an IPv6 address — Render cannot reach IPv6, so warn clearly
+          // instead of failing with a cryptic ENETUNREACH later.
+          if (!isLocal) {
+            console.warn(
+              `[db] Host "${hostname}" has no resolvable IPv4 (A) record; ` +
+                `Render cannot reach its IPv6 address. Make sure DATABASE_URL ` +
+                `points to an IPv4-capable host (e.g. a Supabase/Neon pooler, ` +
+                `port 6543/5432 with an A record). (${(err as Error).message})`
+            )
+          }
         }
       }
 
