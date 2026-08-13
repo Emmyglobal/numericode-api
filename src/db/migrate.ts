@@ -1,7 +1,7 @@
 import dotenv from 'dotenv';
 dotenv.config();
 
-import pool, { query } from './pool';
+import { query, endPool } from './pool';
 
 async function migrate() {
   console.log('Running migrations...');
@@ -592,7 +592,7 @@ try {
     console.error('Migration failed:', error);
     throw error;
   } finally {
-    await pool.end();
+    await endPool();
   }
 }
 
