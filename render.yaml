@@ -4,12 +4,14 @@ services:
     runtime: node
     plan: free
     buildCommand: npm install && npm run build
-    # Run database migrations as part of every deploy — this runs BEFORE the
-    # service starts and blocks startup until it completes. It fails the
-    # deploy loudly (rather than silently starting with a missing schema) and
-    # uses whatever DATABASE_URL is set in this service's environment.
+    # Run database migrations as part of every deploy. Two mechanisms are used
+    # so it works regardless of how the service is deployed:
+    #   * preDeployCommand  – used when this service is Blueprint-managed
+    #   * `npm run setup`   – used when the service is manually configured
+    #                        (the Start Command in the Render dashboard)
+    # Both call db:migrate, which is idempotent (CREATE TABLE IF NOT EXISTS).
     preDeployCommand: npm run db:migrate
-    startCommand: npm start
+    startCommand: npm run setup && npm start
     healthCheckPath: /health
     envVars:
       - key: NODE_ENV
