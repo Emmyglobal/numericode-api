@@ -14,6 +14,7 @@ import contactRoutes      from './routes/contact.routes'
 import aiRoutes           from './routes/ai.routes'
 import subscriptionsRoutes from './routes/subscriptions.routes'
 import boardsRoutes       from './routes/boards.routes'
+import codeEditorRoutes   from './routes/code-editor.routes'
 import assessmentsRoutes  from './routes/assessments.routes'
 import certificatesRoutes from './routes/certificates.routes'
 import quizzesRoutes      from './routes/quizzes.routes'
@@ -69,6 +70,7 @@ app.get('/health', (_req, res) => {
   app.use('/api/ai',      aiRoutes)
   app.use('/api/subscriptions', subscriptionsRoutes)
   app.use('/api/boards', boardsRoutes)
+  app.use('/api/code-editor', codeEditorRoutes)
   app.use('/api', assessmentsRoutes)
   app.use('/api/certificates', certificatesRoutes)
   app.use('/api/quizzes', quizzesRoutes)

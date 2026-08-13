@@ -185,6 +185,25 @@ try {
         updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
         UNIQUE(lesson_id, owner_id)
       );
+      ALTER TABLE lesson_boards ADD COLUMN IF NOT EXISTS board_type VARCHAR(20) NOT NULL DEFAULT 'group' CHECK (board_type IN ('group','individual'));
+      ALTER TABLE lesson_boards ADD COLUMN IF NOT EXISTS target_student_ids UUID[] NOT NULL DEFAULT '{}';
+      ALTER TABLE lesson_boards ADD COLUMN IF NOT EXISTS revision INTEGER NOT NULL DEFAULT 0;
+
+      -- Collaborative code editor sessions (trainer + students code together during live class)
+      CREATE TABLE IF NOT EXISTS code_editor_sessions (
+        id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        lesson_id   UUID NOT NULL REFERENCES lessons(id) ON DELETE CASCADE,
+        owner_id    UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        code_data   JSONB NOT NULL DEFAULT '{"version":1,"files":[{"id":"main","name":"main.js","language":"javascript","content":"// Welcome to the collaborative code editor!\n// Write your code here and run it together.\nconsole.log(\"Hello, NumeriCode!\");"}]}'::jsonb,
+        is_shared   BOOLEAN NOT NULL DEFAULT FALSE,
+        is_locked   BOOLEAN NOT NULL DEFAULT FALSE,
+        share_type  VARCHAR(20) NOT NULL DEFAULT 'group' CHECK (share_type IN ('group','individual')),
+        target_student_ids UUID[] NOT NULL DEFAULT '{}',
+        revision    INTEGER NOT NULL DEFAULT 0,
+        updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        UNIQUE(lesson_id, owner_id)
+      );
+      CREATE INDEX IF NOT EXISTS idx_code_editor_sessions_lesson_id ON code_editor_sessions(lesson_id);
 
       CREATE TABLE IF NOT EXISTS course_completion_settings (
         course_id                    UUID PRIMARY KEY REFERENCES courses(id) ON DELETE CASCADE,

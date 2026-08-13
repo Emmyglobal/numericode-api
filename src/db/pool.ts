@@ -1,7 +1,7 @@
 import 'dotenv/config'
-import { Pool } from 'pg'
+import { Pool, PoolConfig } from 'pg'
 
-const pool = new Pool({
+const poolConfig: PoolConfig & { family?: number } = {
   connectionString: process.env.DATABASE_URL,
   ssl: {
     rejectUnauthorized: false,
@@ -9,7 +9,10 @@ const pool = new Pool({
   max: 20,
   idleTimeoutMillis: 30000,
   connectionTimeoutMillis: 10000,
-});
+  family: 4, // Prefer IPv4 (important for Render + Supabase compatibility)
+}
+
+const pool = new Pool(poolConfig);
 
 pool.on('error', (err) => {
   console.error('PostgreSQL pool error:', err)
