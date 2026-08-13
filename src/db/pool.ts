@@ -50,18 +50,25 @@ async function getPool(): Promise<Pool> {
       const user = decodeURIComponent(parsed.username)
       const password = decodeURIComponent(parsed.password)
 
-      // Only require SSL when running in production or when the connection
-      // string explicitly opts in (?sslmode=require / ?ssl=true). Render sets
-      // NODE_ENV=production, so deployed traffic is always encrypted; local
-      // dev and CI (plain local Postgres) can connect without TLS.
+      // Use SSL for any remote (non-localhost) database so Supabase/Neon/etc.
+      // still connect securely even if NODE_ENV is not set to 'production'
+      // (this deploy reported "Environment: development"). Localhost (local
+      // dev / CI plain Postgres) connects without TLS. An explicit
+      // sslmode=disable or ssl=false in the URL always wins.
       const sslMode =
         (parsed.searchParams.get('sslmode') || '').toLowerCase()
+      const isLocal = ['localhost', '127.0.0.1', '::1'].includes(
+        hostname.toLowerCase()
+      )
       const useSsl =
-        process.env.NODE_ENV === 'production' ||
-        sslMode === 'require' ||
-        sslMode === 'verify-ca' ||
-        sslMode === 'verify-full' ||
-        parsed.searchParams.get('ssl') === 'true'
+        sslMode !== 'disable' &&
+        parsed.searchParams.get('ssl') !== 'false' &&
+        (sslMode === 'require' ||
+          sslMode === 'verify-ca' ||
+          sslMode === 'verify-full' ||
+          parsed.searchParams.get('ssl') === 'true' ||
+          process.env.NODE_ENV === 'production' ||
+          !isLocal)
 
       // Force IPv4 (A-record) resolution; fall back to the hostname if the
       // host has no A record (e.g. localhost, a Unix-socket path, etc.).
