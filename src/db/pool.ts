@@ -47,37 +47,14 @@ async function getPool(): Promise<Pool> {
       const hostname = parsed.hostname || 'localhost'
       const port = parseInt(parsed.port || '5432', 10)
 
-      // Supabase's dedicated DB host (`db.<ref>.supabase.co:6543`) is IPv6-only
-      // and unreachable from Render's free tier. If DATABASE_URL still points at
-      // it, redirect to the IPv4 connection pooler so we never fall back to the
-      // IPv6 address (which would ENETUNREACH and crash the app). User, password
-      // and database are reused verbatim — only host:port change.
       let dbHost = hostname
       let dbPort = port
-      if (
-        /^db\.[a-z0-9]+\.supabase\.co$/i.test(hostname) &&
-        port === 6543
-      ) {
-        dbHost =
-          process.env.SUPABASE_POOLER_HOST ||
-          'aws-1-eu-west-1.pooler.supabase.com'
-        dbPort = parseInt(process.env.SUPABASE_POOLER_PORT || '5432', 10)
-        console.warn(
-          `[db] DATABASE_URL targets the IPv6-only Supabase direct host ` +
-            `'${hostname}:${port}'; redirecting to the IPv4 pooler ` +
-            `'${dbHost}:${dbPort}' (credentials/SSL preserved).`
-        )
-      }
 
       const database = parsed.pathname.replace(/^\//, '') || 'postgres'
       const user = decodeURIComponent(parsed.username)
       const password = decodeURIComponent(parsed.password)
 
-      // Use SSL for any remote (non-localhost) database so Supabase/Neon/etc.
-      // still connect securely even if NODE_ENV is not set to 'production'
-      // (this deploy reported "Environment: development"). Localhost (local
-      // dev / CI plain Postgres) connects without TLS. An explicit
-      // sslmode=disable or ssl=false in the URL always wins.
+      // ── SSL ────────────────────────────────────────────────────────────────────
       const sslMode =
         (parsed.searchParams.get('sslmode') || '').toLowerCase()
       const isLocal = ['localhost', '127.0.0.1', '::1'].includes(
@@ -93,20 +70,57 @@ async function getPool(): Promise<Pool> {
           process.env.NODE_ENV === 'production' ||
           !isLocal)
 
-      // Force IPv4 (A-record) resolution; fall back to the hostname if the
-      // host has no A record (e.g. localhost, a Unix-socket path, etc.).
+      // ── IPv4 override ──────────────────────────────────────────────────────────
+      //
+      // Render's free tier cannot reach IPv6. Every Supabase host (pooler AND
+      // direct) publishes an AAAA record alongside its A record, and Node's "first"
+      // or "verbatim" resolution order may hand the IPv6 address to pg — which
+      // then tries a TCP connect to an IPv6 address and fails with ENETUNREACH.
+      //
+      // The `pg` driver ignores the `family` pool option, so we resolve to a
+      // *numeric IPv4 address ourselves* and pass that to the Pool. pg then never
+      // opens an IPv6 socket.
+      //
+      // Furthermore, if the original DATABASE_URL still targets
+      // `<something>.supabase.co` (the direct IPv6-only host, e.g.
+      // `db.<ref>.supabase.co:6543`), we auto-redirect to the IPv4-capable
+      // transaction/session pooler. User/password/database are kept verbatim.
+      // ────────────────────────────────────────────────────────────────────────────
       let host = dbHost
-      if (net.isIP(dbHost) === 0) {
+
+      // --- Auto-redirect: any `.supabase.co` or `.supabase.com` host → pooler ---
+      const isSupabaseDirect =
+        /\.supabase\.co$/i.test(hostname) ||
+        /\.supabase\.com$/i.test(hostname)
+      if (isSupabaseDirect) {
+        dbHost =
+          process.env.SUPABASE_POOLER_HOST ||
+          'aws-1-eu-west-1.pooler.supabase.com'
+        dbPort = parseInt(process.env.SUPABASE_POOLER_PORT || '5432', 10)
+        host = dbHost
+        console.warn(
+          `[db] DATABASE_URL targets a Supabase host (${hostname}:${port}); ` +
+            `redirecting to the IPv4 pooler ${dbHost}:${dbPort} ` +
+            `(credentials/SSL preserved).`
+        )
+      }
+
+      // --- Force numeric IPv4 (A-record) resolution ---
+      if (net.isIP(host) === 0) {
         try {
-          const { address } = await dnsPromises.lookup(dbHost, { family: 4 })
-          if (address) host = address
+          const { address } = await dnsPromises.lookup(host, { family: 4 })
+          if (address) {
+            host = address
+            console.log(`[db] Resolved ${dbHost} → ${host} (IPv4)`)
+          }
         } catch (err) {
-          // No IPv4 (A) record. For a remote DB this means the host only has
-          // an IPv6 address — Render cannot reach IPv6, so warn clearly
-          // instead of failing with a cryptic ENETUNREACH later.
+          // No IPv4 (A) record — the hostname points to IPv6 only.
+          // On Render this would cause ENETUNREACH. If we already redirected from
+          // a Supabase host and the *pooler* also has no A record (unusual), try
+          // the default pooler fallback.
           if (!isLocal) {
             console.warn(
-              `[db] Host "${hostname}" has no resolvable IPv4 (A) record; ` +
+              `[db] Host "${host}" has no resolvable IPv4 (A) record; ` +
                 `Render cannot reach its IPv6 address. Make sure DATABASE_URL ` +
                 `points to an IPv4-capable host (e.g. a Supabase/Neon pooler, ` +
                 `port 6543/5432 with an A record). (${(err as Error).message})`
