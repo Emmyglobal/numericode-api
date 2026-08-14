@@ -32,26 +32,29 @@ process.on('uncaughtException', (reason) => {
 })
 
 async function start() {
-  // Apply the database schema before accepting traffic. Migration is
-  // idempotent (CREATE TABLE IF NOT EXISTS / ADD COLUMN IF NOT EXISTS), so it's
-  // safe on every boot. If it fails (unreachable DB, permission error, etc.) it
-  // crashes loudly here instead of starting and returning 500s everywhere.
-  await migrate()
-
-  // Seed demo data (idempotent — a clean no-op on re-runs). Non-fatal: a seed
-  // failure must never prevent the API from starting and serving existing data.
-  try {
-    await seed()
-  } catch (err) {
-    console.warn('Seed failed (non-fatal):', (err as Error)?.message ?? err)
-  }
-
   const app = createApp()
 
-  // Bind to '0.0.0.0' to accept standard cloud proxy traffic
+  // Bind to '0.0.0.0' BEFORE running migrations/seed so Render's port scan /
+  // health-check sees the open port immediately. On the free tier, a slow
+  // migration in the boot path causes Render to report "Application exited
+  // early" / "Port scan timeout" even though the server eventually listens.
   const server = app.listen(Number(PORT), '0.0.0.0', () => {
     console.log(`NumeriCode API listening on port:  ${PORT}`)
     console.log(`Environment: ${process.env.NODE_ENV || 'production'}`)
+
+    // Schedule DB tasks after the server is already accepting traffic.
+    // Migration failures are logged but never bring the server down.
+    migrate()
+      .then(() => {
+        console.log('Startup migration completed.')
+        // Seed is idempotent — a clean no-op on re-runs.
+        return seed().catch((err) =>
+          console.warn('Seed failed (non-fatal):', (err as Error)?.message ?? err)
+        )
+      })
+      .catch((err) => {
+        console.error('Startup migration / seed failed (server stays up):', err)
+      })
   })
 
   // Surface bind/socket errors as logs instead of letting the process exit
