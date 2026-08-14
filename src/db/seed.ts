@@ -2,8 +2,30 @@ import 'dotenv/config'
 import bcrypt from 'bcryptjs'
 import { query } from './pool'
 
-async function seed() {
+export async function seed() {
   console.log('Seeding database...')
+
+
+  // Idempotency guard: `seed()` is invoked by index.ts on every boot (and is
+  // also exposed as `npm run db:seed`). Re-running must be a clean no-op so we
+  // never violate the UNIQUE(email) constraint OR duplicate rows in tables that
+  // have no unique key (e.g. courses). If any demo user already exists, skip.
+  const DEMO_EMAILS = [
+    'emmanuel@numericode.com',
+    'nwaforugochukwu21@gmail.com',
+    'trainer@numericode.com',
+    'kolade@gmail.com',
+    'amaka@gmail.com',
+  ]
+  const { rows: existing } = await query<{ email: string }>(
+    'SELECT email FROM users WHERE email = ANY($1)',
+    [DEMO_EMAILS]
+  )
+  if (existing.length > 0) {
+    console.log('Database already seeded; skipping.')
+    return
+  }
+
 
   const passwordHash = await bcrypt.hash('password123', 10)
 
@@ -13,13 +35,13 @@ async function seed() {
     VALUES
       ('Emmanuel Nwafor', 'emmanuel@numericode.com', $1, 'admin',   'active', TRUE),
       ('Ugochukwu Nwafor', 'nwaforugochukwu21@gmail.com', $1, 'admin', 'active', TRUE),
-      ('Trainer One',     'trainer@numericode.com',  $1, 'trainer', 'active', FALSE),
-      ('Kolade Adebayo',  'kolade@gmail.com',         $1, 'student', 'active', FALSE),
-      ('Amaka Okonkwo',   'amaka@gmail.com',          $1, 'student', 'active', FALSE),
+                  ('Trainer One',     'trainer@numericode.com',  $1, 'trainer', 'active', TRUE),
+      ('Kolade Adebayo',  'kolade@gmail.com',         $1, 'student', 'active', TRUE),
+      ('Amaka Okonkwo',   'amaka@gmail.com',          $1, 'student', 'active', TRUE),
       
-      ('Chidi Obi',       'chidi@gmail.com',          $1, 'student', 'active', FALSE),
-      ('Ngozi Eze',       'ngozi@gmail.com',          $1, 'student', 'active', FALSE),
-      ('Emeka Nwosu',     'emeka@gmail.com',          $1, 'student', 'suspended', FALSE)
+                  ('Chidi Obi',       'chidi@gmail.com',          $1, 'student', 'active', TRUE),
+      ('Ngozi Eze',       'ngozi@gmail.com',          $1, 'student', 'active', TRUE),
+      ('Emeka Nwosu',     'emeka@gmail.com',          $1, 'student', 'suspended', TRUE)
     RETURNING id, email
   `, [passwordHash])
 
@@ -212,8 +234,16 @@ async function seed() {
   console.log(`  Admin:   emmanuel@numericode.com      / password123`)
   console.log(`  Admin:   nwaforugochukwu21@gmail.com  / password123`)
   console.log(`  Trainer: trainer@numericode.com        / password123`)
-  console.log(`  Student: kolade@gmail.com               / password123`)
-  process.exit(0)
+      console.log(`  Student: kolade@gmail.com               / password123`)
 }
 
-seed().catch(err => { console.error('Seed failed:', err); process.exit(1) })
+// Only auto-run when invoked directly (`npm run db:seed`). When imported by
+// index.ts the caller controls execution — and must not be killed by exit().
+if (require.main === module) {
+  seed()
+    .then(() => process.exit(0))
+    .catch((err) => {
+      console.error('Seed failed:', err)
+      process.exit(1)
+    })
+}

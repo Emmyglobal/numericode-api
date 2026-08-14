@@ -134,9 +134,19 @@ async function getPool(): Promise<Pool> {
         connectionTimeoutMillis: 10000,
       })
 
+      // IMPORTANT: never `process.exit()` here. The pool emits 'error' for
+      // *transient*, expected conditions — most notably when Supabase's
+      // Supavisor / pgBouncer pooler closes an idle connection (it does this
+      // aggressively, especially on the free tier). Killing the whole process on
+      // those events caused Render to report "Application exited early" and crash
+      // -loop after every successful deploy (migrations ran, then the process
+      // died). Log and continue; `pg` will just open a fresh connection next.
       pool.on('error', (err) => {
-        console.error('PostgreSQL pool error:', err)
-        process.exit(-1)
+        console.error(
+          '[db] Pool error (transient — idle connection dropped. Keeping the ' +
+            'server alive.):',
+          err.message ?? err
+        )
       })
 
       cachedPool = pool
