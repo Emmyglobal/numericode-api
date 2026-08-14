@@ -46,6 +46,29 @@ async function getPool(): Promise<Pool> {
       const parsed = new URL(raw)
       const hostname = parsed.hostname || 'localhost'
       const port = parseInt(parsed.port || '5432', 10)
+
+      // Supabase's dedicated DB host (`db.<ref>.supabase.co:6543`) is IPv6-only
+      // and unreachable from Render's free tier. If DATABASE_URL still points at
+      // it, redirect to the IPv4 connection pooler so we never fall back to the
+      // IPv6 address (which would ENETUNREACH and crash the app). User, password
+      // and database are reused verbatim — only host:port change.
+      let dbHost = hostname
+      let dbPort = port
+      if (
+        /^db\.[a-z0-9]+\.supabase\.co$/i.test(hostname) &&
+        port === 6543
+      ) {
+        dbHost =
+          process.env.SUPABASE_POOLER_HOST ||
+          'aws-1-eu-west-1.pooler.supabase.com'
+        dbPort = parseInt(process.env.SUPABASE_POOLER_PORT || '5432', 10)
+        console.warn(
+          `[db] DATABASE_URL targets the IPv6-only Supabase direct host ` +
+            `'${hostname}:${port}'; redirecting to the IPv4 pooler ` +
+            `'${dbHost}:${dbPort}' (credentials/SSL preserved).`
+        )
+      }
+
       const database = parsed.pathname.replace(/^\//, '') || 'postgres'
       const user = decodeURIComponent(parsed.username)
       const password = decodeURIComponent(parsed.password)
@@ -58,7 +81,7 @@ async function getPool(): Promise<Pool> {
       const sslMode =
         (parsed.searchParams.get('sslmode') || '').toLowerCase()
       const isLocal = ['localhost', '127.0.0.1', '::1'].includes(
-        hostname.toLowerCase()
+        dbHost.toLowerCase()
       )
       const useSsl =
         sslMode !== 'disable' &&
@@ -72,10 +95,10 @@ async function getPool(): Promise<Pool> {
 
       // Force IPv4 (A-record) resolution; fall back to the hostname if the
       // host has no A record (e.g. localhost, a Unix-socket path, etc.).
-      let host = hostname
-      if (net.isIP(hostname) === 0) {
+      let host = dbHost
+      if (net.isIP(dbHost) === 0) {
         try {
-          const { address } = await dnsPromises.lookup(hostname, { family: 4 })
+          const { address } = await dnsPromises.lookup(dbHost, { family: 4 })
           if (address) host = address
         } catch (err) {
           // No IPv4 (A) record. For a remote DB this means the host only has
@@ -96,14 +119,14 @@ async function getPool(): Promise<Pool> {
         user,
         password,
         host,
-        port,
+        port: dbPort,
         database,
         ssl: useSsl
           ? {
               rejectUnauthorized: false,
               // Keep SNI/certificate hostname correct even though `host` is now
               // a raw numeric IP.
-              servername: hostname,
+              servername: dbHost,
             }
           : false,
         max: 20,
@@ -143,3 +166,4 @@ export const endPool = async () => {
   cachedPool = null
   poolPromise = null
 }
+
