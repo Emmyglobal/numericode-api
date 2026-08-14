@@ -194,7 +194,7 @@ try {
         id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
         lesson_id   UUID NOT NULL REFERENCES lessons(id) ON DELETE CASCADE,
         owner_id    UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-        code_data   JSONB NOT NULL DEFAULT '{"version":1,"files":[{"id":"main","name":"main.js","language":"javascript","content":"// Welcome to the collaborative code editor!\n// Write your code here and run it together.\nconsole.log(\"Hello, NumeriCode!\");"}]}'::jsonb,
+        code_data   JSONB NOT NULL DEFAULT '{"version":1,"files":[]}'::jsonb,
         is_shared   BOOLEAN NOT NULL DEFAULT FALSE,
         is_locked   BOOLEAN NOT NULL DEFAULT FALSE,
         share_type  VARCHAR(20) NOT NULL DEFAULT 'group' CHECK (share_type IN ('group','individual')),

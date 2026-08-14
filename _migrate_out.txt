@@ -1,0 +1,30 @@
+
+> numericode-api@1.0.0 db:migrate
+> node dist/db/migrate.js
+
+◇ injected env (10) from .env // tip: ⌘ enable debugging { debug: true }
+Running migrations...
+Migration failed: error: password authentication failed for user "postgres"
+    at C:\Users\User\Downloads\files (2)\numericode-api-checkpoint2\numericode-api\node_modules\pg-pool\index.js:45:11
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async query (C:\Users\User\Downloads\files (2)\numericode-api-checkpoint2\numericode-api\dist\db\pool.js:118:20)
+    at async migrate (C:\Users\User\Downloads\files (2)\numericode-api-checkpoint2\numericode-api\dist\db\migrate.js:12:9) {
+  length: 104,
+  severity: 'FATAL',
+  code: '28P01',
+  detail: undefined,
+  hint: undefined,
+  position: undefined,
+  internalPosition: undefined,
+  internalQuery: undefined,
+  where: undefined,
+  schema: undefined,
+  table: undefined,
+  column: undefined,
+  dataType: undefined,
+  constraint: undefined,
+  file: 'auth.c',
+  line: '320',
+  routine: 'auth_failed'
+}
+EXIT=1

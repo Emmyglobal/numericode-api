@@ -1,0 +1,26 @@
+◇ injected env (10) from .env // tip: ⌘ custom filepath { path: '/custom/path/.env' }
+Running migrations...
+Migration failed: error: invalid input syntax for type json
+    at C:\Users\User\Downloads\files (2)\numericode-api-checkpoint2\numericode-api\node_modules\pg-pool\index.js:45:11
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async query (C:\Users\User\Downloads\files (2)\numericode-api-checkpoint2\numericode-api\dist\db\pool.js:118:20)
+    at async migrate (C:\Users\User\Downloads\files (2)\numericode-api-checkpoint2\numericode-api\dist\db\migrate.js:12:9) {
+  length: 224,
+  severity: 'ERROR',
+  code: '22P02',
+  detail: 'Character with value 0x0a must be escaped.',
+  hint: undefined,
+  position: '10123',
+  internalPosition: undefined,
+  internalQuery: undefined,
+  where: 'JSON data, line 1: ...nt":"// Welcome to the collaborative code editor!',
+  schema: undefined,
+  table: undefined,
+  column: undefined,
+  dataType: undefined,
+  constraint: undefined,
+  file: 'jsonfuncs.c',
+  line: '657',
+  routine: 'json_errsave_error'
+}
+EXIT=1
