@@ -9,11 +9,21 @@ export function errorHandler(err: unknown, _req: Request, res: Response, _next: 
     return fail(res, 'A record with this value already exists', 409)
   }
 
-  const message = process.env.NODE_ENV === 'production'
-    ? 'Internal server error'
-    : err instanceof Error ? err.message : 'Unknown error'
+  // ⚠️ TEMPORARY DIAGNOSTIC (2026-08-14) — surface the real error message in the
+  // API response so the DB 500 cause is visible via curl. The error handler
+  // previously masked it as "Internal server error" in production. REVERT this
+  // to the masked message once the root cause is fixed and verified.
+  const message = err instanceof Error
+    ? err.message
+    : typeof err === 'string'
+      ? err
+      : 'Internal server error'
+  const code =
+    typeof err === 'object' && err !== null && 'code' in err
+      ? (err as { code?: unknown }).code
+      : undefined
 
-  return fail(res, message, 500)
+  return fail(res, code !== undefined ? `${message} (code=${String(code)})` : message, 500)
 }
 
 export function notFoundHandler(_req: Request, res: Response) {

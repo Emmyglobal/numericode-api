@@ -7,6 +7,30 @@ import { processSessionAlerts, processExpiredSessions } from './services/schedul
 
 const PORT = process.env.PORT || 3001
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Global async error handling.
+//
+// Without these, an unhandled promise rejection anywhere during startup (e.g. a
+// stray DB query, a notification fan-out, a mailer call) makes Node >=15 crash
+// the whole process *silently* — no error reaches the console — which Render
+// reports as "Application exited early" and crash-loops. We convert rejections
+// into a clearly-logged error and STAY UP so the real cause is visible in the
+// deploy log and transient failures never kill the API.
+// ─────────────────────────────────────────────────────────────────────────────
+process.on('unhandledRejection', (reason) => {
+  console.error(
+    '[startup] Unhandled promise rejection (kept running; cause below):',
+    reason
+  )
+})
+
+process.on('uncaughtException', (reason) => {
+  console.error(
+    '[startup] Uncaught exception (kept running; cause below):',
+    reason
+  )
+})
+
 async function start() {
   // Apply the database schema before accepting traffic. Migration is
   // idempotent (CREATE TABLE IF NOT EXISTS / ADD COLUMN IF NOT EXISTS), so it's
