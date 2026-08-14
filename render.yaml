@@ -11,7 +11,12 @@ services:
     #                        (the Start Command in the Render dashboard)
     # Both call db:migrate, which is idempotent (CREATE TABLE IF NOT EXISTS).
     preDeployCommand: npm run db:migrate
-    startCommand: npm run setup && npm start
+    # The preDeployCommand above already runs migrations once before the service
+    # starts — do NOT re-run them in the start command. Adding migration to the
+    # start path delays port binding past Render's port-scan timeout (free tier),
+    # which causes "Application exited early" even though the server eventually
+    # listens. Just `npm start` is enough.
+    startCommand: npm start
     healthCheckPath: /health
     envVars:
       - key: NODE_ENV
