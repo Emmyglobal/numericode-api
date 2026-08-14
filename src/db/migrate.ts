@@ -3,7 +3,7 @@ dotenv.config();
 
 import { query, endPool } from './pool';
 
-async function migrate() {
+export async function migrate() {
   console.log('Running migrations...');
 
 try {
@@ -591,11 +591,18 @@ try {
   } catch (error) {
     console.error('Migration failed:', error);
     throw error;
-  } finally {
-    await endPool();
   }
 }
 
-migrate().catch(() => {
-  process.exit(1);
-});
+// Standalone CLI entrypoint (`npm run db:migrate` / `node dist/db/migrate.js`),
+// which also closes the pool and exits. When `migrate()` is imported by
+// index.ts for startup migration, the pool is left open for the running app.
+if (require.main === module) {
+  migrate()
+    .then(() => endPool())
+    .then(() => process.exit(0))
+    .catch((err) => {
+      console.error('Migration failed:', err);
+      process.exit(1);
+    });
+}
