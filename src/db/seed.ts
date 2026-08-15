@@ -65,6 +65,150 @@ export async function seed() {
       }
     }
     console.log('Admin/trainer account check complete.')
+
+    // The list of available teachers shown to students during registration is
+    // derived from active users who teach at least one *published* course. If the
+    // demo accounts exist but the demo courses are missing (this happens when the
+    // DB was previously seeded incompletely / reset of content while keeping
+    // accounts), that list comes back empty and students cannot pick a trainer.
+    // Recreate the demo published courses whenever the DB has none, so the
+    // "Preferred Teacher" dropdown is always populated.
+    const { rows: courseCount } = await query<{ count: string }>(
+      `SELECT COUNT(*)::text AS count FROM courses`
+    )
+    if (Number(courseCount[0]?.count ?? 0) === 0) {
+      // Prefer an active trainer as the instructor; fall back to an admin so the
+      // recovery is always self-healing.
+      const { rows: trainerRows } = await query<{ id: string }>(
+        `SELECT id FROM users WHERE role = 'trainer' AND status = 'active' ORDER BY created_at LIMIT 1`
+      )
+      const { rows: adminRows } = await query<{ id: string }>(
+        `SELECT id FROM users WHERE role = 'admin' AND status = 'active' ORDER BY created_at LIMIT 1`
+      )
+      const instructorId = trainerRows[0]?.id ?? adminRows[0]?.id
+      if (instructorId) {
+        await query(
+          `INSERT INTO courses (title, description, subject, level, instructor_id, status, lesson_count, outcomes)
+           VALUES
+             ('Foundation Mathematics', 'Build a rock-solid foundation in arithmetic, fractions, algebra, and geometry.',
+              'mathematics', 'beginner', $1, 'published', 24,
+              ARRAY['Master arithmetic operations','Solve algebraic equations','Understand geometry basics']),
+             ('JavaScript for Beginners', 'Start your programming journey with JavaScript.',
+              'programming', 'beginner', $1, 'published', 30,
+              ARRAY['Understand variables and data types','Write functions and loops','Manipulate the DOM']),
+             ('Algebra & Equations', 'Master algebraic thinking from linear equations to systems of equations.',
+              'mathematics', 'intermediate', $1, 'published', 28,
+              ARRAY['Solve linear equations','Graph linear functions','Tackle quadratic equations']),
+             ('React & TypeScript', 'Build modern, type-safe web applications with React 18 and TypeScript.',
+              'programming', 'advanced', $1, 'published', 40,
+              ARRAY['Build React components','Manage state with hooks','Use TypeScript with React'])`,
+          [instructorId]
+        )
+                console.log('  Recreated demo published courses so available teachers appear in registration.')
+      } else {
+        console.log('  No active trainer/admin account found; skipping course recovery.')
+      }
+    } else {
+      console.log('  Demo courses already present — skipping course recovery.')
+    }
+
+    // ── Content recovery: modules + lessons + enrollments ───────────────────────
+    // The interactive board and collaborative code editor only render against a
+    // *lesson*, and a student can only open a lesson they are enrolled in
+    // (see studentCanAccess in boards/code-editor controllers). If the demo
+    // accounts exist but the content graph is missing, recreate lessons +
+    // enrollments so BOTH the Trainer and Student screens have real content to
+    // collaborate on during live teaching.
+    {
+                        // Ensure the demo students exist AND are active/activated. We upsert with
+      // ON CONFLICT (email) because a self-service registration may have created
+      // these demo emails as `status='pending'` (awaiting admin approval), which
+      // would block login entirely (see the `login` gate on status='pending').
+      // Forcing status='active' + account_activated=TRUE keeps the demo students
+      // usable so they can reach the interactive board / code editor.
+      const DEMO_STUDENTS = [
+        { name: 'Kolade Adebayo', email: 'kolade@gmail.com' },
+        { name: 'Amaka Okonkwo',  email: 'amaka@gmail.com' },
+      ]
+      for (const s of DEMO_STUDENTS) {
+        const { rows: before } = await query<{ status: string; account_activated: boolean }>(
+          'SELECT status, account_activated FROM users WHERE email = $1', [s.email]
+        )
+        await query(
+          `INSERT INTO users (name, email, password_hash, role, status, account_activated)
+           VALUES ($1, $2, $3, 'student', 'active', TRUE)
+           ON CONFLICT (email) DO UPDATE SET
+             name              = EXCLUDED.name,
+             password_hash       = EXCLUDED.password_hash,
+             role                = 'student',
+             status              = 'active',
+             account_activated   = TRUE`,
+          [s.name, s.email, passwordHash]
+        )
+        const created = before.length === 0
+        console.log(`  ${created ? 'Created' : 'Ensured active'} demo student account: ${s.email}`)
+      }
+
+      // Resolve the course + student IDs we need below.
+      const { rows: fmRows } = await query<{ id: string }>('SELECT id FROM courses WHERE title = $1', ['Foundation Mathematics'])
+      const { rows: jsRows } = await query<{ id: string }>('SELECT id FROM courses WHERE title = $1', ['JavaScript for Beginners'])
+      const { rows: koladeRows } = await query<{ id: string }>('SELECT id FROM users WHERE email = $1', ['kolade@gmail.com'])
+      const { rows: amakaRows }  = await query<{ id: string }>('SELECT id FROM users WHERE email = $1', ['amaka@gmail.com'])
+      const kolade = koladeRows[0]
+      const amaka  = amakaRows[0]
+
+      // Modules + lessons (the lesson graph that powers boards & code editors).
+      const { rows: lessonCount } = await query<{ count: string }>(`SELECT COUNT(*)::text AS count FROM lessons`)
+      if (Number(lessonCount[0]?.count ?? 0) === 0 && fmRows[0] && jsRows[0]) {
+        const { rows: fmModules } = await query<{ id: string }>(
+          `INSERT INTO modules (course_id, title, position) VALUES
+             ($1, 'Numbers & Arithmetic', 0),
+             ($1, 'Fractions & Decimals', 1),
+             ($1, 'Introduction to Algebra', 2)
+          RETURNING id`, [fmRows[0].id]
+        )
+        await query(
+          `INSERT INTO lessons (module_id, title, duration, position) VALUES
+             ($1, 'Introduction to Numbers',       20, 0),
+             ($1, 'Addition & Subtraction',        25, 1),
+             ($1, 'Multiplication & Division',     30, 2)`, [fmModules[0].id]
+        )
+        const { rows: jsModules } = await query<{ id: string }>(
+          `INSERT INTO modules (course_id, title, position) VALUES
+             ($1, 'JavaScript Fundamentals', 0),
+             ($1, 'Functions & Scope',       1),
+             ($1, 'DOM & ES6',               2)
+          RETURNING id`, [jsRows[0].id]
+        )
+        await query(
+          `INSERT INTO lessons (module_id, title, duration, position) VALUES
+             ($1, 'Getting Started with JS',          15, 0),
+             ($1, 'Functions and Arrow Functions',      25, 1),
+             ($1, 'DOM Manipulation',                   35, 2)`, [jsModules[0].id]
+        )
+        console.log('  Recreated demo lessons so the interactive board & code editor have content.')
+      } else {
+        console.log('  Demo lessons already present -- skipping lesson recovery.')
+      }
+
+      // Enrollments (without these, students cannot open lesson boards / editors).
+      const { rows: enrollmentCount } = await query<{ count: string }>(`SELECT COUNT(*)::text AS count FROM enrollments`)
+      if (Number(enrollmentCount[0]?.count ?? 0) === 0 && kolade && amaka && fmRows[0] && jsRows[0]) {
+        await query(
+          `INSERT INTO enrollments (user_id, course_id, progress) VALUES
+             ($1, $3, 42),
+             ($1, $4, 25),
+             ($2, $3, 88)
+          ON CONFLICT (user_id, course_id) DO NOTHING`,
+          [kolade.id, amaka.id, fmRows[0].id, jsRows[0].id]
+        )
+        console.log('  Recreated demo enrollments so students can access lesson boards & code editors.')
+      } else {
+        console.log('  Demo enrollments already present -- skipping enrollment recovery.')
+      }
+        }
+
+    // ── Content recovery: modules + lessons + enrollments ───────────────────────
     return
   }
 
