@@ -406,3 +406,92 @@ export async function createAnnouncement(req: Request, res: Response, next: Next
     }, 201)
   } catch (err) { next(err) }
 }
+
+export async function suspendUser(req: Request, res: Response, next: NextFunction) {
+  try {
+    const { reason } = req.body as { reason?: string }
+    const userId = String(req.params.id)
+
+    // Get user details before suspension
+    const { rows: userRows } = await query<UserRow>(
+      'SELECT * FROM users WHERE id = $1',
+      [userId]
+    )
+    if (!userRows[0]) return notFound(res, 'User not found')
+
+    const user = userRows[0]
+    
+    // Don't suspend if already suspended
+    if (user.status === 'suspended') {
+      return fail(res, 'User is already suspended', 400)
+    }
+
+    // Update user status to suspended
+    await query(
+      'UPDATE users SET status = $1 WHERE id = $2',
+      ['suspended', userId]
+    )
+
+    // Send suspension email to user
+    const { sendAccountSuspendedEmail } = await import('../utils/mailer')
+    await sendAccountSuspendedEmail(user.email, user.name, reason).catch((err) => {
+      console.error('Failed to send suspension email:', err)
+    })
+
+    // Send in-app notification
+    await notifyUser(userId, 'Your account has been suspended',
+      reason ? `Reason: ${reason}` : 'Contact support if you have questions', 'general')
+
+    return ok(res, {
+      message: 'User account suspended successfully',
+      userId,
+      userEmail: user.email,
+      suspendedAt: new Date().toISOString(),
+    })
+  } catch (err) { next(err) }
+}
+
+export async function deleteUser(req: Request, res: Response, next: NextFunction) {
+  try {
+    const { reason } = req.body as { reason?: string }
+    const userId = String(req.params.id)
+
+    // Prevent self-deletion
+    if (userId === req.user?.userId) {
+      return fail(res, 'Cannot delete your own account', 400)
+    }
+
+    // Get user details before deletion
+    const { rows: userRows } = await query<UserRow>(
+      'SELECT * FROM users WHERE id = $1',
+      [userId]
+    )
+    if (!userRows[0]) return notFound(res, 'User not found')
+
+    const user = userRows[0]
+
+    // Store user info for email before deletion
+    const userEmail = user.email
+    const userName = user.name
+
+    // Delete user - cascade will handle related data
+    // The database schema has ON DELETE CASCADE for most tables
+    await query(
+      'DELETE FROM users WHERE id = $1',
+      [userId]
+    )
+
+    // Send deletion email to user (using stored email/name)
+    const { sendAccountDeletedEmail } = await import('../utils/mailer')
+    await sendAccountDeletedEmail(userEmail, userName, reason).catch((err) => {
+      console.error('Failed to send deletion email:', err)
+    })
+
+    return ok(res, {
+      message: 'User account and all associated data deleted successfully',
+      deletedUserId: userId,
+      deletedUserEmail: userEmail,
+      deletedAt: new Date().toISOString(),
+    })
+  } catch (err) { next(err) }
+}

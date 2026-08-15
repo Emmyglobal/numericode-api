@@ -5,7 +5,7 @@ import {
   getCourses, createCourse, updateCourseStatus,
   getAnnouncements, createAnnouncement, getCourseRequests, reviewCourseRequest,
   updateCourseAccess, getCourseCompletionSettings, updateCourseCompletionSettings,
-  reassignStudent, reassignCourse,
+  reassignStudent, reassignCourse, suspendUser, deleteUser,
 } from '../controllers/admin.controller'
 
 const router = Router()
@@ -15,6 +15,8 @@ router.get('/stats',                ...guard, getStats)
 router.get('/users',                ...guard, getUsers)
 router.get('/trainers',             ...guard, getTrainers)
 router.patch('/users/:id',          ...guard, updateUser)
+router.patch('/users/:id/suspend',  ...guard, suspendUser)
+router.delete('/users/:id',         ...guard, deleteUser)
 router.get('/courses',              ...guard, getCourses)
 router.post('/courses',             ...guard, createCourse)
 router.patch('/courses/:id/status', ...guard, updateCourseStatus)

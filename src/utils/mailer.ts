@@ -270,3 +270,62 @@ export async function sendActivationEmail(email: string, name: string, role: str
     console.error('SendGrid sendActivationEmail failed:', err)
   }
 }
+
+export async function sendAccountSuspendedEmail(email: string, name: string, reason?: string) {
+  try {
+    await sendMail({
+      to: email,
+      subject: 'Your NumeriCode account has been suspended',
+      html: buildHtml('Account Suspended', `
+        <p style="font-size:16px; color:#374151; line-height:1.6;">Hi <strong>${escapeHtml(name)}</strong>,</p>
+        <p style="font-size:16px; color:#374151; line-height:1.6;">
+          Your NumeriCode account has been <strong>suspended</strong> by an administrator.
+        </p>
+        ${reason ? `<p style="font-size:16px; color:#374151; line-height:1.6;"><strong>Reason:</strong> ${escapeHtml(reason)}</p>` : ''}
+        <p style="font-size:16px; color:#374151; line-height:1.6;">
+          You will not be able to access your account or any courses until this suspension is lifted.
+        </p>
+        <p style="font-size:16px; color:#374151; line-height:1.6;">
+          If you believe this is a mistake or have questions, please contact our support team at <a href="mailto:${CONTACT_EMAIL_TO}" style="color:#2563EB;">${CONTACT_EMAIL_TO}</a>.
+        </p>`),
+      text:
+        `Hi ${name},\n\n` +
+        `Your NumeriCode account has been suspended by an administrator.\n\n` +
+        (reason ? `Reason: ${reason}\n\n` : '') +
+        `You will not be able to access your account or any courses until this suspension is lifted.\n\n` +
+        `If you believe this is a mistake, please contact support: ${CONTACT_EMAIL_TO}`,
+    })
+  } catch (err) {
+    console.error('SendGrid sendAccountSuspendedEmail failed:', err)
+  }
+}
+
+export async function sendAccountDeletedEmail(email: string, name: string, reason?: string) {
+  try {
+    await sendMail({
+      to: email,
+      subject: 'Your NumeriCode account has been deleted',
+      html: buildHtml('Account Deleted', `
+        <p style="font-size:16px; color:#374151; line-height:1.6;">Hi <strong>${escapeHtml(name)}</strong>,</p>
+        <p style="font-size:16px; color:#374151; line-height:1.6;">
+          Your NumeriCode account has been <strong>permanently deleted</strong> by an administrator.
+        </p>
+        ${reason ? `<p style="font-size:16px; color:#374151; line-height:1.6;"><strong>Reason:</strong> ${escapeHtml(reason)}</p>` : ''}
+        <p style="font-size:16px; color:#374151; line-height:1.6;">
+          All associated data including courses, enrollments, and progress have been removed from our system.
+          This action cannot be undone.
+        </p>
+        <p style="font-size:16px; color:#374151; line-height:1.6;">
+          If you have any questions or concerns, please contact our support team at <a href="mailto:${CONTACT_EMAIL_TO}" style="color:#2563EB;">${CONTACT_EMAIL_TO}</a>.
+        </p>`),
+      text:
+        `Hi ${name},\n\n` +
+        `Your NumeriCode account has been permanently deleted by an administrator.\n\n` +
+        (reason ? `Reason: ${reason}\n\n` : '') +
+        `All associated data including courses, enrollments, and progress have been removed.\n\n` +
+        `If you have questions, please contact support: ${CONTACT_EMAIL_TO}`,
+    })
+  } catch (err) {
+    console.error('SendGrid sendAccountDeletedEmail failed:', err)
+  }
+}
