@@ -22,7 +22,49 @@ export async function seed() {
     [DEMO_EMAILS]
   )
   if (existing.length > 0) {
-    console.log('Database already seeded; skipping.')
+    console.log('Database already seeded; ensuring admin/trainer accounts exist.')
+    // Still ensure admin + trainer accounts are present and correct — they may
+    // have been removed, changed, or (if someone registered via the API) created
+    // with a non-admin role by the self-service registration endpoint.
+    const passwordHash = await bcrypt.hash('password123', 10)
+    const ADMIN_ACCOUNTS = [
+      { name: 'Emmanuel Nwafor', email: 'emmanuel@numericode.com', role: 'admin' },
+      { name: 'Ugochukwu Nwafor', email: 'nwaforugochukwu21@gmail.com', role: 'admin' },
+      { name: 'Trainer One', email: 'trainer@numericode.com', role: 'trainer' },
+    ]
+    for (const acct of ADMIN_ACCOUNTS) {
+      const { rows: found } = await query<{ id: string; role: string }>(
+        'SELECT id, role FROM users WHERE email = $1',
+        [acct.email]
+      )
+      if (found.length === 0) {
+        // Account doesn't exist → create it
+        await query(
+          `INSERT INTO users (name, email, password_hash, role, status, account_activated)
+           VALUES ($1, $2, $3, $4, 'active', TRUE)`,
+          [acct.name, acct.email, passwordHash, acct.role]
+        )
+        console.log(`  Created ${acct.role} account: ${acct.email}`)
+      } else {
+        // Account exists — ensure correct role, active status, activated
+        const { rows: updated } = await query(
+          `UPDATE users
+           SET role              = $1,
+               status            = 'active',
+               account_activated = TRUE
+           WHERE email = $2
+             AND (role IS DISTINCT FROM $1
+               OR status IS DISTINCT FROM 'active'
+               OR account_activated IS DISTINCT FROM TRUE)
+           RETURNING id`,
+          [acct.role, acct.email]
+        )
+        if (updated.length > 0) {
+          console.log(`  Restored/corrected ${acct.role} account: ${acct.email}`)
+        }
+      }
+    }
+    console.log('Admin/trainer account check complete.')
     return
   }
 
