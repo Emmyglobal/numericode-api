@@ -109,11 +109,12 @@ export async function updateTrainerBoardState(req: Request, res: Response, next:
     if (lesson.instructor_id !== req.user!.userId) return forbidden(res, 'You can only manage boards in your courses')
     const { isShared, isLocked, boardType, targetStudentIds } = req.body as { isShared?: boolean; isLocked?: boolean; boardType?: 'group' | 'individual'; targetStudentIds?: string[] }
     if (typeof isShared !== 'boolean' && typeof isLocked !== 'boolean' && !boardType) return fail(res, 'Provide isShared, isLocked, or boardType', 400)
-    const finalBoardType = boardType === 'individual' ? 'individual' : 'group'
-    const finalTargetIds = finalBoardType === 'individual' ? (targetStudentIds ?? []) : '{}'
+    // Preserve selected students when changing only lock or visibility state.
+    const finalBoardType = boardType === undefined ? null : (boardType === 'individual' ? 'individual' : 'group')
+    const finalTargetIds = boardType === undefined ? null : (finalBoardType === 'individual' ? (targetStudentIds ?? []) : [])
     const { rows } = await query<BoardRow>(
       `INSERT INTO lesson_boards (lesson_id, owner_id, board_data, is_shared, is_locked, board_type, target_student_ids)
-       VALUES ($1, $2, '{"version":1,"elements":[]}'::jsonb, COALESCE($3, FALSE), COALESCE($4, FALSE), $5, $6)
+       VALUES ($1, $2, '{"version":1,"elements":[]}'::jsonb, COALESCE($3, FALSE), COALESCE($4, FALSE), COALESCE($5, 'group'), COALESCE($6::uuid[], '{}'))
        ON CONFLICT (lesson_id, owner_id) DO UPDATE SET
          is_shared = COALESCE($3, lesson_boards.is_shared),
          is_locked = COALESCE($4, lesson_boards.is_locked),

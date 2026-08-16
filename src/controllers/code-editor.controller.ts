@@ -148,11 +148,12 @@ export async function updateTrainerCodeEditorState(req: Request, res: Response, 
     if (lesson.instructor_id !== req.user!.userId) return forbidden(res, 'You can only manage code editors in your courses')
     const { isShared, isLocked, shareType, targetStudentIds } = req.body as { isShared?: boolean; isLocked?: boolean; shareType?: 'group' | 'individual'; targetStudentIds?: string[] }
     if (typeof isShared !== 'boolean' && typeof isLocked !== 'boolean' && !shareType) return fail(res, 'Provide isShared, isLocked, or shareType', 400)
-    const finalShareType = shareType === 'individual' ? 'individual' : 'group'
-    const finalTargetIds = finalShareType === 'individual' ? (targetStudentIds ?? []) : '{}'
+    // Changing the lock or visibility must not discard individual recipients.
+    const finalShareType = shareType === undefined ? null : (shareType === 'individual' ? 'individual' : 'group')
+    const finalTargetIds = shareType === undefined ? null : (finalShareType === 'individual' ? (targetStudentIds ?? []) : [])
     const { rows } = await query<CodeEditorRow>(
       `INSERT INTO code_editor_sessions (lesson_id, owner_id, code_data, is_shared, is_locked, share_type, target_student_ids)
-       VALUES ($1, $2, $3::jsonb, COALESCE($4, FALSE), COALESCE($5, FALSE), $6, $7)
+       VALUES ($1, $2, $3::jsonb, COALESCE($4, FALSE), COALESCE($5, FALSE), COALESCE($6, 'group'), COALESCE($7::uuid[], '{}'))
        ON CONFLICT (lesson_id, owner_id) DO UPDATE SET
          is_shared = COALESCE($4, code_editor_sessions.is_shared),
          is_locked = COALESCE($5, code_editor_sessions.is_locked),
