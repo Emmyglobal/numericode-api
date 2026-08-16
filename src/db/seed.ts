@@ -1,6 +1,7 @@
 import 'dotenv/config'
 import bcrypt from 'bcryptjs'
 import { query } from './pool'
+import { ensureCurriculumCatalog } from './curriculum'
 
 export async function seed() {
   console.log('Seeding database...')
@@ -209,6 +210,7 @@ export async function seed() {
         }
 
     // ── Content recovery: modules + lessons + enrollments ───────────────────────
+    await ensureCurriculumCatalog()
     return
   }
 
@@ -416,6 +418,7 @@ export async function seed() {
       ('Live Class Reschedule Notice', 'The Algebra live class has been moved. Please check your dashboard.', 'students', $1)
   `, [admin.id])
 
+  await ensureCurriculumCatalog()
   console.log('Seed complete.')
   console.log(`  Admin:   emmanuel@numericode.com      / password123`)
   console.log(`  Admin:   nwaforugochukwu21@gmail.com  / password123`)

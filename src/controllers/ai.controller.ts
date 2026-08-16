@@ -46,6 +46,12 @@ async function callOpenAI(systemPrompt: string, userMessage: string, maxTokens =
   if (!response.ok) {
     const errorBody = await response.text().catch(() => '')
     console.error('OpenAI API error:', response.status, errorBody)
+    if (response.status === 401 || response.status === 403) {
+      throw new Error('AI authentication failed. Please contact support.')
+    }
+    if (response.status === 429) {
+      throw new Error('The AI service has reached its current request or credit limit. Please try again later.')
+    }
     throw new Error('The AI assistant is temporarily unavailable. Please try again shortly.')
   }
 
@@ -83,6 +89,8 @@ a teacher or support when a topic needs hands-on guidance.`,
   } catch (err: any) {
     if (err.message?.includes('not configured')) return fail(res, err.message, 503)
     if (err.message?.includes('unavailable')) return fail(res, err.message, 503)
+    if (err.message?.includes('credit limit')) return fail(res, err.message, 429)
+    if (err.message?.includes('authentication failed')) return fail(res, err.message, 503)
     next(err)
   }
 }
@@ -117,6 +125,8 @@ Keep the lesson between 300-600 words.`,
   } catch (err: any) {
     if (err.message?.includes('not configured')) return fail(res, err.message, 503)
     if (err.message?.includes('unavailable')) return fail(res, err.message, 503)
+    if (err.message?.includes('credit limit')) return fail(res, err.message, 429)
+    if (err.message?.includes('authentication failed')) return fail(res, err.message, 503)
     next(err)
   }
 }
@@ -211,6 +221,8 @@ The JSON object must have this exact shape:
   } catch (err: any) {
     if (err.message?.includes('not configured')) return fail(res, err.message, 503)
     if (err.message?.includes('unavailable')) return fail(res, err.message, 503)
+    if (err.message?.includes('credit limit')) return fail(res, err.message, 429)
+    if (err.message?.includes('authentication failed')) return fail(res, err.message, 503)
     next(err)
   }
 }
@@ -242,6 +254,8 @@ Keep it between 200-400 words.`,
   } catch (err: any) {
     if (err.message?.includes('not configured')) return fail(res, err.message, 503)
     if (err.message?.includes('unavailable')) return fail(res, err.message, 503)
+    if (err.message?.includes('credit limit')) return fail(res, err.message, 429)
+    if (err.message?.includes('authentication failed')) return fail(res, err.message, 503)
     next(err)
   }
 }
