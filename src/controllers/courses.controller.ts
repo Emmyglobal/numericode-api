@@ -22,7 +22,7 @@ export async function buildFullCourse(course: CourseRow, includeProtectedContent
         'SELECT * FROM resources WHERE lesson_id = $1', [lesson.id]
       )
       return {
-        id: lesson.id, title: lesson.title, duration: lesson.duration,
+        id: lesson.id, title: lesson.title, content: lesson.content, duration: lesson.duration,
         isCompleted: userId ? Boolean((await query<{ id: string }>('SELECT id FROM lesson_completions WHERE user_id = $1 AND lesson_id = $2', [userId, lesson.id])).rows[0]) : false,
         resources: includeProtectedContent ? resources.map(r => ({ id: r.id, title: r.title, type: r.type, url: r.url })) : [],
       }

@@ -5,6 +5,7 @@ import {
   generateLessonContent,
   generateQuizQuestions,
   generateAssignment,
+  generateNote,
 } from '../controllers/ai.controller'
 
 const router = Router()
@@ -16,5 +17,6 @@ router.post('/study-guide', studyGuide)
 router.post('/generate-lesson', requireAuth, requireRole('trainer' as const), generateLessonContent)
 router.post('/generate-quiz', requireAuth, requireRole('trainer' as const), generateQuizQuestions)
 router.post('/generate-assignment', requireAuth, requireRole('trainer' as const), generateAssignment)
+router.post('/generate-note', requireAuth, requireRole('trainer' as const), generateNote)
 
 export default router

@@ -9,6 +9,12 @@ const courses: CourseSeed[] = [
     ['Geometry and Trigonometry', ['Angles, Shapes and Constructions', 'Mensuration', 'Right-Angle Trigonometry']],
     ['Statistics and Revision', ['Data Handling and Probability', 'High School Mathematics Examination Practice']],
   ] },
+  { title: 'Mathematics to Coding: Logic, Numbers & Algorithms', subject: 'mathematics', description: 'A bridge course that takes students from mathematics into coding, revealing how the logic, number systems, variables, and patterns you study in maths become the core ideas behind every computer program.', modules: [
+    ['Mathematical Logic for Code', ['Statements, Truth and Boolean Logic', 'Conditional Reasoning and Truth Tables', 'Logic Gates and Logical Operators']],
+    ['Number Systems Under the Hood', ['Binary and Hexadecimal', 'Base Conversion and Binary Arithmetic', 'How Computers Encode Data']],
+    ['Algebra as Programming', ['Variables and Expressions', 'Linear Functions and Input–Output', 'Functions, Sequences and Algorithms']],
+    ['Patterns, Pseudocode and First Programs', ['Number Patterns and Series', 'Algorithms and Flowcharts', 'Your First Coding Project']],
+  ] },
   { title: 'HTML: Web Foundations', subject: 'programming', description: 'HTML5 document structure, text, links, media, tables, forms, semantic elements, and accessible web pages.', modules: [
     ['HTML Basics', ['What is HTML?', 'Document Structure', 'Elements, Tags and Attributes']],
     ['Text and Media', ['Headings, Paragraphs and Text', 'Links and Images', 'Lists and Tables']],
@@ -44,4 +50,24 @@ export async function ensureCurriculumCatalog() {
       }
     }
   }
+
+  // Based on the supplied HTML introduction materials: mixed MCQ, objective,
+  // and theory questions are all supported by the student exam screen.
+  const { rows: htmlCourses } = await query<{ id: string }>('SELECT id FROM courses WHERE title = $1', ['HTML: Web Foundations'])
+  if (!htmlCourses[0]) return
+  const { rows: existingQuiz } = await query<{ id: string }>('SELECT id FROM quizzes WHERE course_id = $1 AND title = $2', [htmlCourses[0].id, 'HTML Foundations Examination'])
+  if (existingQuiz[0]) return
+  const { rows: quizzes } = await query<{ id: string }>(
+    "INSERT INTO quizzes (course_id, title, description, time_limit, passing_score, max_attempts, created_by) VALUES ($1, 'HTML Foundations Examination', 'MCQ and theory assessment on HTML structure, text, links, media, lists, tables, forms, and semantics.', 30, 60, 3, $2) RETURNING id",
+    [htmlCourses[0].id, instructorId]
+  )
+  await query(
+    `INSERT INTO quiz_questions (quiz_id, question_text, question_type, options, correct_answer, points, position) VALUES
+    ($1, 'What does HTML stand for?', 'multiple_choice', '[{"id":"a","text":"HyperText Markup Language","isCorrect":true},{"id":"b","text":"Home Tool Markup Language","isCorrect":false},{"id":"c","text":"HighText Machine Language","isCorrect":false},{"id":"d","text":"Hyperlink Text Management Language","isCorrect":false}]', 'a', 10, 0),
+    ($1, 'Which declaration belongs at the top of an HTML5 document?', 'multiple_choice', '[{"id":"a","text":"<html5>","isCorrect":false},{"id":"b","text":"<!DOCTYPE html>","isCorrect":true},{"id":"c","text":"<head>","isCorrect":false},{"id":"d","text":"<meta charset>","isCorrect":false}]', 'b', 10, 1),
+    ($1, 'The img element should include meaningful alt text.', 'true_false', NULL, 'true', 10, 2),
+    ($1, 'Which tag creates an unordered list?', 'fill_blank', NULL, 'ul', 10, 3),
+    ($1, 'Explain why semantic elements such as main, nav, and article are useful. Include one short HTML example.', 'essay', NULL, NULL, 20, 4)`,
+    [quizzes[0].id]
+  )
 }

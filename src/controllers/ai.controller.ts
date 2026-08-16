@@ -259,3 +259,64 @@ Keep it between 200-400 words.`,
     next(err)
   }
 }
+
+// ─── AI Course Note Generation (trainer/admin) ────────────────────────────
+
+export async function generateNote(req: Request, res: Response, next: NextFunction) {
+  try {
+    const { topic, subject, level, style } = req.body as {
+      topic?: string; subject?: string; level?: string; style?: string
+    }
+    if (!topic?.trim()) return fail(res, 'Topic is required', 400)
+    if (isRateLimited(req.ip || 'unknown')) return fail(res, 'Too many requests. Please try again in a few minutes.', 429)
+
+    const noteJson = await callOpenAI(
+      `You are a concise course-note writer for ${subject || 'Mathematics'} at ${level || 'beginner'} level.
+Write clear, well-organised study notes for students on the given topic. The notes should:
+1. Have a short, meaningful title (aim for under 10 words, no trailing punctuation).
+2. Use markdown structure: a brief overview, bullet points of the key concepts, small worked examples,
+   a "Key Points" summary, and an optional "Practice questions" list with hints.
+3. Keep it between 250-450 words and suitable for ${level || 'beginner'} students.
+Use a ${style || 'friendly and encouraging'} tone.
+
+IMPORTANT: Respond with ONLY a valid JSON object. No markdown, no explanation.
+The JSON object must have exactly this shape:
+{
+  "title": "string",
+  "content": "string - full markdown notes"
+}`,
+      `Create study notes about: ${topic.trim()}`,
+      1400,
+      true
+    )
+
+    let parsed: any
+    try {
+      parsed = JSON.parse(noteJson)
+    } catch {
+      // Try to extract JSON from markdown code blocks
+      const jsonMatch = noteJson.match(/```(?:json)?\s*([\s\S]*?)```/)
+      if (jsonMatch) {
+        try { parsed = JSON.parse(jsonMatch[1]) } catch { return fail(res, 'Failed to parse generated notes. Please try again.', 500) }
+      } else {
+        return fail(res, 'Failed to parse generated notes. Please try again.', 500)
+      }
+    }
+
+    const title = (typeof parsed?.title === 'string' && parsed.title.trim())
+      ? parsed.title.trim().slice(0, 255)
+      : `Study Notes: ${topic.trim().slice(0, 200)}`
+
+    const content = (typeof parsed?.content === 'string' && parsed.content.trim())
+      ? parsed.content.trim()
+      : noteJson
+
+    return ok(res, { title, content })
+  } catch (err: any) {
+    if (err.message?.includes('not configured')) return fail(res, err.message, 503)
+    if (err.message?.includes('unavailable')) return fail(res, err.message, 503)
+    if (err.message?.includes('credit limit')) return fail(res, err.message, 429)
+    if (err.message?.includes('authentication failed')) return fail(res, err.message, 503)
+    next(err)
+  }
+}

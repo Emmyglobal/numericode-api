@@ -24,7 +24,7 @@ export interface CourseRow {
   created_at: Date
 }
 export interface ModuleRow    { id: string; course_id: string; title: string; position: number }
-export interface LessonRow    { id: string; module_id: string; title: string; duration: number; position: number }
+export interface LessonRow    { id: string; module_id: string; title: string; content: string; duration: number; position: number }
 export interface ResourceRow  { id: string; lesson_id: string; title: string; type: ResourceType; url: string }
 export interface LiveClassRow {
   id: string; course_id: string; title: string; date: Date
