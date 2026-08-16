@@ -2,7 +2,7 @@ import type { Request, Response, NextFunction } from 'express'
 import { query } from '../db/pool'
 import { ok, fail, notFound, forbidden } from '../utils/response'
 import { notifyAudience, notifyUser } from '../utils/notify'
-import type { CourseRow, LiveClassRow, AssignmentRow, UserRow, AnnouncementRow } from '../types'
+import type { CourseRow, LiveClassRow, AssignmentRow, AssignmentQuestion, AssignmentType, UserRow, AnnouncementRow } from '../types'
 
 export async function getStats(req: Request, res: Response, next: NextFunction) {
   try {
@@ -148,8 +148,48 @@ export async function getTrainerAssignments(req: Request, res: Response, next: N
       dueDate: a.due_date.toISOString().slice(0, 10),
       totalSubmissions: Number(a.total), pendingReview: Number(a.pending),
       totalMarks: Number(a.total_marks), passingScore: Number(a.passing_score),
-      createdAt: a.created_at.toISOString(),
+      description: a.description, type: a.assignment_type, questions: a.questions,
+      aiGenerated: a.ai_generated, createdAt: a.created_at.toISOString(),
     })))
+  } catch (err) { next(err) }
+}
+
+export async function createTrainerAssignment(req: Request, res: Response, next: NextFunction) {
+  try {
+    const { courseId, title, dueDate, totalMarks, passingScore, description, type, questions, aiGenerated } = req.body as {
+      courseId?: string; title?: string; dueDate?: string; totalMarks?: number; passingScore?: number
+      description?: string; type?: string; questions?: Array<Record<string, unknown>>; aiGenerated?: boolean
+    }
+    if (!courseId || !title?.trim()) return fail(res, 'Course and title are required', 400)
+    if (!dueDate) return fail(res, 'Due date is required', 400)
+    const marks = Number(totalMarks)
+    const passing = Number(passingScore ?? 0)
+    if (!Number.isFinite(marks) || marks <= 0) return fail(res, 'Total marks must be a positive number', 400)
+    if (!Number.isFinite(passing) || passing < 0) return fail(res, 'Passing score must be a non-negative number', 400)
+
+    const { rows: courseRows } = await query<{ id: string }>(
+      'SELECT id FROM courses WHERE id = $1 AND instructor_id = $2', [courseId, req.user!.userId]
+    )
+    if (!courseRows[0]) return forbidden(res, 'You can only create assignments for your own courses')
+
+    const safeQuestions = Array.isArray(questions) ? (questions as AssignmentQuestion[]) : []
+    const assignmentType = (['mcq', 'theory', 'subjective', 'file', 'mixed'].includes(String(type || ''))
+      ? String(type) : (safeQuestions.length ? 'mixed' : 'theory')) as AssignmentType
+
+    const { rows } = await query<AssignmentRow & { course_title: string }>(
+      `INSERT INTO assignments (course_id, title, due_date, total_marks, passing_score, description, assignment_type, questions, ai_generated)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING *`,
+      [courseId, title.trim(), new Date(dueDate), marks, passing, description ?? '', assignmentType, JSON.stringify(safeQuestions), Boolean(aiGenerated)]
+    )
+    const course = await query<{ title: string }>('SELECT title FROM courses WHERE id = $1', [courseId])
+    await notifyAudience('students', 'New assignment available', `A new assignment "${title.trim()}" has been published.`)
+    return ok(res, {
+      id: rows[0].id, courseId, courseTitle: course.rows[0]?.title ?? '',
+      title: rows[0].title, dueDate: rows[0].due_date.toISOString().slice(0, 10),
+      totalMarks: Number(rows[0].total_marks), passingScore: Number(rows[0].passing_score),
+      description: rows[0].description, type: rows[0].assignment_type, questions: rows[0].questions,
+      aiGenerated: rows[0].ai_generated, createdAt: rows[0].created_at.toISOString(),
+    })
   } catch (err) { next(err) }
 }
 
@@ -159,6 +199,7 @@ export async function getTrainerLessons(req: Request, res: Response, next: NextF
       `SELECT l.id, l.title, m.title AS module_title, c.id AS course_id, c.title AS course_title FROM lessons l
        JOIN modules m ON m.id = l.module_id JOIN courses c ON c.id = m.course_id
        WHERE c.instructor_id = $1 ORDER BY c.title, m.position, l.position`, [req.user!.userId]
+    )
     )
     return ok(res, rows.map(lesson => ({ id: lesson.id, title: lesson.title, moduleTitle: lesson.module_title, courseId: lesson.course_id, courseTitle: lesson.course_title })))
   } catch (error) { next(error) }

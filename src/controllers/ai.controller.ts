@@ -237,20 +237,71 @@ export async function generateAssignment(req: Request, res: Response, next: Next
     if (!topic?.trim()) return fail(res, 'Topic is required', 400)
     if (isRateLimited(req.ip || 'unknown')) return fail(res, 'Too many requests. Please try again in a few minutes.', 429)
 
-    const result = await callOpenAI(
+    const assignmentJson = await callOpenAI(
       `You are an assignment creator for ${subject || 'Mathematics'} at ${level || 'beginner'} level.
-Generate a comprehensive assignment for the given topic. Include:
-1. A brief description of the assignment
-2. 3-5 questions or tasks for students to complete
-3. Clear instructions for submission
+Given a topic, design a well-structured assignment for students.
 
-Format the response as plain text with clear sections.
-Keep it between 200-400 words.`,
+IMPORTANT: Respond with ONLY a valid JSON object. No markdown, no explanation.
+The JSON object must have exactly this shape:
+{
+  "title": "string - a short, meaningful assignment title (under 10 words)",
+  "description": "string - 2-3 sentences describing the assignment, expectations and submission instructions",
+  "questions": [
+    {
+      "type": "mcq" | "theory" | "subjective" | "file" | "related",
+      "title": "string - full question text",
+      "marks": number,
+      "options": ["string", "string"] - REQUIRED only for type \"mcq\" (3-5 options; omit otherwise),
+      "correctOptionIndex": number - index of the correct option for \"mcq\" (omit for other types)
+    }
+  ]
+}
+
+Build 4-5 questions that ideally mix types:
+- \"mcq\": multiple choice with clearly distinct options
+- \"theory\": a short written explanation / define-and-explain style question
+- \"subjective\": a longer written answer / problem-solving task
+- \"file\": a task requiring the student to upload a file (e.g. a worksheet, drawing, or code file) - give clear file-upload instructions in the title
+- \"related\": a task that references a related resource/material the trainer will attach (e.g. \"Using the attached diagram/reference, ...\")
+
+Keep every question age- and level-appropriate. Use JSON escaping for quotes.`,
       `Create an assignment about: ${topic.trim()}`,
-      600
+      1400,
+      true
     )
 
-    return ok(res, { description: result })
+    let parsed: any
+    try {
+      parsed = JSON.parse(assignmentJson)
+    } catch {
+      const jsonMatch = assignmentJson.match(/```(?:json)?\s*([\s\S]*?)```/)
+      if (jsonMatch) {
+        try { parsed = JSON.parse(jsonMatch[1]) } catch { return fail(res, 'Failed to parse generated assignment. Please try again.', 500) }
+      } else {
+        return fail(res, 'Failed to parse generated assignment. Please try again.', 500)
+      }
+    }
+
+    const title = (typeof parsed?.title === 'string' && parsed.title.trim()) ? parsed.title.trim().slice(0, 255) : `Assignment: ${topic.trim().slice(0, 200)}`
+    const description = (typeof parsed?.description === 'string' && parsed.description.trim()) ? parsed.description.trim() : `An assignment about ${topic.trim()} for ${level || 'beginner'} students.`
+
+    const allowedTypes: string[] = ['mcq', 'theory', 'subjective', 'file', 'related']
+    const questions = Array.isArray(parsed?.questions)
+      ? (parsed.questions as any[])
+          .filter((q: any) => q && typeof q.title === 'string' && q.title.trim())
+          .map((q: any, index: number) => ({
+            id: `q${index + 1}`,
+            type: allowedTypes.includes(String(q.type)) ? String(q.type) : 'theory',
+            title: q.title.trim(),
+            marks: Number.isFinite(Number(q.marks)) && Number(q.marks) > 0 ? Number(q.marks) : 10,
+            options: Array.isArray(q.options) ? (q.options as unknown[]).map(String) : undefined,
+            correctOptionIndex: Number.isInteger(Number(q.correctOptionIndex)) ? Number(q.correctOptionIndex) : undefined,
+          }))
+      : []
+
+    if (!questions.length) return fail(res, 'The AI could not generate questions. Please try again.', 500)
+
+    return ok(res, { title, description, questions: questions as any[], aiGenerated: true })
   } catch (err: any) {
     if (err.message?.includes('not configured')) return fail(res, err.message, 503)
     if (err.message?.includes('unavailable')) return fail(res, err.message, 503)

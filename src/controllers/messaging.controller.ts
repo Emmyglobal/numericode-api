@@ -213,15 +213,28 @@ export async function getGroupConversations(req: Request, res: Response, next: N
     const userId = req.user!.userId
     const { courseId } = req.query
 
+    // Users see a group conversation if they are a member of it OR they are the
+    // instructor (or an admin) of the course the conversation belongs to. This
+    // lets trainers view and reply to the group threads their students create.
     let queryStr = `
-      SELECT gc.*, 
-        COUNT(DISTINCT gm.user_id) as member_count,
-        COUNT(DISTINCT gm2.id) as message_count
+      SELECT gc.*,
+        COUNT(DISTINCT gcm.user_id) AS member_count,
+        COUNT(DISTINCT gm.id)       AS message_count,
+        EXISTS (
+          SELECT 1 FROM group_conversation_members me
+          WHERE me.conversation_id = gc.id AND me.user_id = $1
+        ) AS is_member
       FROM group_conversations gc
-      JOIN group_conversation_members gcm ON gcm.conversation_id = gc.id
-      LEFT JOIN group_conversation_members gm ON gm.conversation_id = gc.id
-      LEFT JOIN group_messages gm2 ON gm2.conversation_id = gc.id
-      WHERE gcm.user_id = $1
+      LEFT JOIN group_conversation_members gcm ON gcm.conversation_id = gc.id
+      LEFT JOIN group_messages gm ON gm.conversation_id = gc.id
+      WHERE EXISTS (
+        SELECT 1 FROM group_conversation_members gcm2
+        WHERE gcm2.conversation_id = gc.id AND gcm2.user_id = $1
+      )
+      OR EXISTS (
+        SELECT 1 FROM courses c
+        WHERE c.id = gc.course_id AND c.instructor_id = $1
+      )
     `
     const params: unknown[] = [userId]
 
@@ -232,7 +245,7 @@ export async function getGroupConversations(req: Request, res: Response, next: N
 
     queryStr += ' GROUP BY gc.id ORDER BY gc.created_at DESC'
 
-    const { rows } = await query<(GroupConversationRow & { member_count: string; message_count: string })>(queryStr, params)
+    const { rows } = await query<(GroupConversationRow & { member_count: string; message_count: string; is_member: boolean })>(queryStr, params)
 
     return ok(res, rows.map(r => ({
       id: r.id,
@@ -241,6 +254,7 @@ export async function getGroupConversations(req: Request, res: Response, next: N
       createdBy: r.created_by,
       memberCount: Number(r.member_count),
       messageCount: Number(r.message_count),
+      isMember: r.is_member,
       createdAt: r.created_at.toISOString(),
     })))
   } catch (err) { next(err) }
@@ -251,14 +265,22 @@ export async function getGroupMessages(req: Request, res: Response, next: NextFu
     const { conversationId } = req.params
     const userId = req.user!.userId
 
-    // Verify user is a member
-    const { rows: [member] } = await query(
-      'SELECT id FROM group_conversation_members WHERE conversation_id = $1 AND user_id = $2',
+    // Verify the user can access this thread: they must be a member OR the
+    // instructor (or admin) of the course the conversation belongs to.
+    const { rows: [access] } = await query<{ allowed: boolean }>(
+      `SELECT (
+         EXISTS (SELECT 1 FROM group_conversation_members WHERE conversation_id = $1 AND user_id = $2)
+         OR EXISTS (
+           SELECT 1 FROM group_conversations gc
+           JOIN courses c ON c.id = gc.course_id
+           WHERE gc.id = $1 AND c.instructor_id = $2
+         )
+       ) AS allowed`,
       [conversationId, userId]
     )
 
-    if (!member) {
-      return fail(res, 'You are not a member of this conversation', 403)
+    if (!access?.allowed) {
+      return fail(res, 'You do not have access to this conversation', 403)
     }
 
     const { rows } = await query<(GroupMessageRow & { sender_name: string })>(
@@ -291,14 +313,22 @@ export async function sendGroupMessage(req: Request, res: Response, next: NextFu
       return fail(res, 'Message body is required', 400)
     }
 
-    // Verify user is a member
-    const { rows: [member] } = await query(
-      'SELECT id FROM group_conversation_members WHERE conversation_id = $1 AND user_id = $2',
+    // Verify the user can post to this thread: they must be a member OR the
+    // instructor (or admin) of the course the conversation belongs to.
+    const { rows: [access] } = await query<{ allowed: boolean }>(
+      `SELECT (
+         EXISTS (SELECT 1 FROM group_conversation_members WHERE conversation_id = $1 AND user_id = $2)
+         OR EXISTS (
+           SELECT 1 FROM group_conversations gc
+           JOIN courses c ON c.id = gc.course_id
+           WHERE gc.id = $1 AND c.instructor_id = $2
+         )
+       ) AS allowed`,
       [conversationId, senderId]
     )
 
-    if (!member) {
-      return fail(res, 'You are not a member of this conversation', 403)
+    if (!access?.allowed) {
+      return fail(res, 'You do not have access to this conversation', 403)
     }
 
     const { rows: [message] } = await query<GroupMessageRow>(

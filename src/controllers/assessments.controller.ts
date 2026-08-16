@@ -5,13 +5,17 @@ import { fail, forbidden, notFound, ok } from '../utils/response'
 type SubmissionWithAssignment = {
   id: string; assignment_id: string; user_id: string; status: string; submitted_at: Date | null; content: string | null
   score: number | null; feedback: string | null; graded_at: Date | null; returned_for_correction: boolean
+  answers: unknown; file_name: string | null; file_data: string | null
   title: string; course_id: string; course_title: string; due_date: Date; total_marks: number; passing_score: number
   student_name?: string; student_email?: string
 }
 
 export async function submitAssignment(req: Request, res: Response, next: NextFunction) {
   try {
-    const { content = '' } = req.body as { content?: string }
+    const { answers = [], content = '', fileName = null, fileData = null } = req.body as {
+      answers?: Array<{ questionId: string; selectedIndex?: number; answer?: string; fileName?: string; fileData?: string }>
+      content?: string; fileName?: string | null; fileData?: string | null
+    }
     const { rows: assignments } = await query<{ id: string; due_date: Date }>(
       `SELECT a.id, a.due_date FROM assignments a JOIN enrollments e ON e.course_id = a.course_id
        WHERE a.id = $1 AND e.user_id = $2`, [req.params.assignmentId, req.user!.userId]
@@ -19,11 +23,13 @@ export async function submitAssignment(req: Request, res: Response, next: NextFu
     if (!assignments[0]) return notFound(res, 'Assignment not found or unavailable')
     const status = assignments[0].due_date < new Date() ? 'overdue' : 'submitted'
     const { rows } = await query<{ id: string; status: string; submitted_at: Date }>(
-      `INSERT INTO submissions (assignment_id, user_id, status, content, submitted_at, returned_for_correction)
-       VALUES ($1, $2, $3, $4, NOW(), FALSE)
+      `INSERT INTO submissions (assignment_id, user_id, status, content, answers, file_name, file_data, submitted_at, returned_for_correction)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, NOW(), FALSE)
        ON CONFLICT (assignment_id, user_id) DO UPDATE SET status = EXCLUDED.status, content = EXCLUDED.content,
+         answers = EXCLUDED.answers, file_name = EXCLUDED.file_name, file_data = EXCLUDED.file_data,
          submitted_at = NOW(), returned_for_correction = FALSE, score = NULL, feedback = NULL, graded_at = NULL
-       RETURNING id, status, submitted_at`, [req.params.assignmentId, req.user!.userId, status, content]
+       RETURNING id, status, submitted_at`,
+      [req.params.assignmentId, req.user!.userId, status, content, JSON.stringify(answers), fileName, fileData]
     )
     return ok(res, { id: rows[0].id, status: rows[0].status, submittedAt: rows[0].submitted_at.toISOString() })
   } catch (error) { next(error) }
@@ -41,6 +47,7 @@ export async function getAssignmentSubmissions(req: Request, res: Response, next
       id: row.id, studentId: row.user_id, studentName: row.student_name, studentEmail: row.student_email,
       status: row.status, submittedAt: row.submitted_at?.toISOString(), content: row.content, score: row.score,
       feedback: row.feedback, gradedAt: row.graded_at?.toISOString(), returnedForCorrection: row.returned_for_correction,
+      answers: row.answers ?? [], fileName: row.file_name, fileData: row.file_data,
       totalMarks: Number(row.total_marks), passingScore: Number(row.passing_score),
     })))
   } catch (error) { next(error) }

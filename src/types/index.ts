@@ -34,8 +34,36 @@ export interface LiveClassRow {
 }
 export interface EnrollmentRow { id: string; user_id: string; course_id: string; progress: number; enrolled_at: Date }
 export interface LessonCompletionRow { id: string; user_id: string; lesson_id: string; completed_at: Date }
-export interface AssignmentRow { id: string; course_id: string; title: string; due_date: Date; total_marks: number; passing_score: number; created_at: Date }
-export interface SubmissionRow { id: string; assignment_id: string; user_id: string; status: AssignmentStatus; submitted_at: Date | null; content: string | null; score: number | null; feedback: string | null; graded_at: Date | null; returned_for_correction: boolean }
+export type AssignmentQuestionType = 'mcq' | 'theory' | 'subjective' | 'file' | 'related'
+export type AssignmentType = 'mcq' | 'theory' | 'subjective' | 'file' | 'mixed'
+
+export interface AssignmentQuestion {
+  id: string
+  type: AssignmentQuestionType
+  title: string
+  marks: number
+  options?: string[]
+  correctOptionIndex?: number
+  allowedFileTypes?: string[]
+  relatedMaterialId?: string
+}
+
+export interface AssignmentAnswer {
+  questionId: string
+  selectedIndex?: number
+  answer?: string
+  fileName?: string
+  fileData?: string
+}
+
+export interface AssignmentRow {
+  id: string; course_id: string; title: string; due_date: Date; total_marks: number; passing_score: number; created_at: Date
+  description: string; assignment_type: AssignmentType; questions: AssignmentQuestion[]; ai_generated: boolean
+}
+export interface SubmissionRow {
+  id: string; assignment_id: string; user_id: string; status: AssignmentStatus; submitted_at: Date | null; content: string | null; score: number | null; feedback: string | null; graded_at: Date | null; returned_for_correction: boolean
+  answers: AssignmentAnswer[] | null; file_name: string | null; file_data: string | null
+}
 export interface SubscriptionRow { id: string; user_id: string; plan_code: string; status: SubscriptionStatus; provider: string | null; provider_reference: string | null; starts_at: Date; ends_at: Date; created_at: Date }
 export interface AnnouncementRow { id: string; title: string; body: string; audience: AnnouncementAudience; created_by: string; created_at: Date }
 

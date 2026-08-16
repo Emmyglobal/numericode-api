@@ -143,6 +143,10 @@ try {
       ALTER TABLE assignments ADD COLUMN IF NOT EXISTS total_marks NUMERIC(8,2) NOT NULL DEFAULT 100 CHECK (total_marks > 0);
       ALTER TABLE assignments ADD COLUMN IF NOT EXISTS passing_score NUMERIC(8,2) NOT NULL DEFAULT 50 CHECK (passing_score >= 0);
       ALTER TABLE assignments ADD COLUMN IF NOT EXISTS lesson_id UUID REFERENCES lessons(id) ON DELETE CASCADE;
+      ALTER TABLE assignments ADD COLUMN IF NOT EXISTS description TEXT NOT NULL DEFAULT '';
+      ALTER TABLE assignments ADD COLUMN IF NOT EXISTS assignment_type VARCHAR(32) NOT NULL DEFAULT 'mixed';
+      ALTER TABLE assignments ADD COLUMN IF NOT EXISTS questions JSONB NOT NULL DEFAULT '[]'::jsonb;
+      ALTER TABLE assignments ADD COLUMN IF NOT EXISTS ai_generated BOOLEAN NOT NULL DEFAULT FALSE;
 
       -- Submissions
       CREATE TABLE IF NOT EXISTS submissions (
@@ -160,6 +164,9 @@ try {
       ALTER TABLE submissions ADD COLUMN IF NOT EXISTS feedback TEXT;
       ALTER TABLE submissions ADD COLUMN IF NOT EXISTS graded_at TIMESTAMPTZ;
       ALTER TABLE submissions ADD COLUMN IF NOT EXISTS returned_for_correction BOOLEAN NOT NULL DEFAULT FALSE;
+      ALTER TABLE submissions ADD COLUMN IF NOT EXISTS answers JSONB;
+      ALTER TABLE submissions ADD COLUMN IF NOT EXISTS file_name TEXT;
+      ALTER TABLE submissions ADD COLUMN IF NOT EXISTS file_data TEXT;
 
       -- Provider-neutral subscriptions. A payment provider only needs to populate its name and reference.
       CREATE TABLE IF NOT EXISTS subscriptions (

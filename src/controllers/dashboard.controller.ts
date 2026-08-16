@@ -117,7 +117,7 @@ export async function getMyCourse(req: Request, res: Response, next: NextFunctio
 export async function getAssignments(req: Request, res: Response, next: NextFunction) {
   try {
     const { rows } = await query<AssignmentRow & { course_title: string; status: string; score: number | null; feedback: string | null; returned_for_correction: boolean }>(
-      `SELECT a.*, c.title AS course_title, s.status
+      `SELECT a.*, c.title AS course_title, s.status, s.score, s.feedback, s.returned_for_correction
        FROM assignments a
        JOIN courses c ON c.id = a.course_id
        JOIN enrollments e ON e.course_id = c.id AND e.user_id = $1
@@ -129,7 +129,30 @@ export async function getAssignments(req: Request, res: Response, next: NextFunc
       id: a.id, courseId: a.course_id, courseTitle: a.course_title, title: a.title,
       dueDate: a.due_date.toISOString().slice(0, 10), status: a.status ?? 'pending', totalMarks: Number(a.total_marks),
       passingScore: Number(a.passing_score), score: a.score === null ? null : Number(a.score), feedback: a.feedback, returnedForCorrection: a.returned_for_correction,
+      description: a.description, type: a.assignment_type, questions: a.questions, aiGenerated: a.ai_generated, createdAt: a.created_at.toISOString(),
     })))
+  } catch (err) { next(err) }
+}
+
+export async function getAssignment(req: Request, res: Response, next: NextFunction) {
+  try {
+    const { rows } = await query<AssignmentRow & { course_title: string; status: string; score: number | null; feedback: string | null; returned_for_correction: boolean }>(
+      `SELECT a.*, c.title AS course_title, s.status, s.score, s.feedback, s.returned_for_correction
+       FROM assignments a
+       JOIN courses c ON c.id = a.course_id
+       JOIN enrollments e ON e.course_id = c.id AND e.user_id = $1
+       LEFT JOIN submissions s ON s.assignment_id = a.id AND s.user_id = $1
+       WHERE a.id = $2`,
+      [req.user!.userId, req.params.id]
+    )
+    if (!rows[0]) return notFound(res, 'Assignment not found or unavailable')
+    const a = rows[0]
+    return ok(res, {
+      id: a.id, courseId: a.course_id, courseTitle: a.course_title, title: a.title,
+      dueDate: a.due_date.toISOString().slice(0, 10), status: a.status ?? 'pending', totalMarks: Number(a.total_marks),
+      passingScore: Number(a.passing_score), score: a.score === null ? null : Number(a.score), feedback: a.feedback, returnedForCorrection: a.returned_for_correction,
+      description: a.description, type: a.assignment_type, questions: a.questions, aiGenerated: a.ai_generated, createdAt: a.created_at.toISOString(),
+    })
   } catch (err) { next(err) }
 }
 

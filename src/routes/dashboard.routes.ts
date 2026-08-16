@@ -1,7 +1,7 @@
 import { Router } from 'express'
 import { requireAuth, requireRole } from '../middleware/auth'
 import {
-  getOverview, getMyCourses, getAssignments, getAnnouncements,
+  getOverview, getMyCourses, getAssignments, getAssignment, getAnnouncements,
   getResources, getLiveClasses, getProfile, updateProfile, getMyCourse,
 } from '../controllers/dashboard.controller'
 
@@ -15,6 +15,7 @@ router.get('/dashboard',         ...guard, getOverview)
 router.get('/dashboard/courses', ...guard, getMyCourses)
 router.get('/dashboard/courses/:id', ...guard, getMyCourse)
 router.get('/assignments',       ...guard, getAssignments)
+router.get('/assignments/:id',   ...guard, getAssignment)
 router.get('/announcements',     ...guard, getAnnouncements)
 router.get('/resources',         ...guard, getResources)
 router.get('/live-classes',      ...guard, getLiveClasses)
