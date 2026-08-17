@@ -204,6 +204,10 @@ export async function createGroupConversation(req: Request, res: Response, next:
     } catch (err) {
       await client.query('ROLLBACK')
       throw err
+    } finally {
+      // Prevent a connection leak — without this the pooled client stays
+      // checked out forever, eventually exhausting the pool (EMAXCONNSESSION).
+      client.release()
     }
   } catch (err) { next(err) }
 }

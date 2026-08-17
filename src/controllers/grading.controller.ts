@@ -143,6 +143,10 @@ export async function submitRubricScores(req: Request, res: Response, next: Next
     } catch (err) {
       await client.query('ROLLBACK')
       throw err
+    } finally {
+      // Prevent a connection leak — without this every call holds a pooled
+      // client forever, eventually exhausting the pool (EMAXCONNSESSION).
+      client.release()
     }
   } catch (err) { next(err) }
 }

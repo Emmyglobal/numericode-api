@@ -172,7 +172,7 @@ export async function createTrainerAssignment(req: Request, res: Response, next:
     )
     if (!courseRows[0]) return forbidden(res, 'You can only create assignments for your own courses')
 
-    const safeQuestions = Array.isArray(questions) ? (questions as AssignmentQuestion[]) : []
+    const safeQuestions = Array.isArray(questions) ? (questions as unknown as AssignmentQuestion[]) : []
     const assignmentType = (['mcq', 'theory', 'subjective', 'file', 'mixed'].includes(String(type || ''))
       ? String(type) : (safeQuestions.length ? 'mixed' : 'theory')) as AssignmentType
 
@@ -199,7 +199,6 @@ export async function getTrainerLessons(req: Request, res: Response, next: NextF
       `SELECT l.id, l.title, m.title AS module_title, c.id AS course_id, c.title AS course_title FROM lessons l
        JOIN modules m ON m.id = l.module_id JOIN courses c ON c.id = m.course_id
        WHERE c.instructor_id = $1 ORDER BY c.title, m.position, l.position`, [req.user!.userId]
-    )
     )
     return ok(res, rows.map(lesson => ({ id: lesson.id, title: lesson.title, moduleTitle: lesson.module_title, courseId: lesson.course_id, courseTitle: lesson.course_title })))
   } catch (error) { next(error) }

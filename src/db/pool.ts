@@ -143,7 +143,14 @@ async function getPool(): Promise<Pool> {
               servername: dbHost,
             }
           : false,
-        max: 20,
+        // Keep the pool safely under the database's own connection limit.
+        // e.g. Neon free/Pro session pool caps at ~15 clients; a max pool
+        // size above that triggers `EMAXCONNSESSION` 500s once the DB's
+        // client limit is reached. Combined with connection leaks in some
+        // controllers (now fixed), this exhausted the shared pool and caused
+        // endpoints like GET /api/courses to fail. 10 stays well under the
+        // limit while leaving headroom for the app's real traffic.
+        max: 10,
         idleTimeoutMillis: 30000,
         connectionTimeoutMillis: 10000,
       })
