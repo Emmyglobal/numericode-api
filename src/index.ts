@@ -39,7 +39,7 @@ async function start() {
   // migration in the boot path causes Render to report "Application exited
   // early" / "Port scan timeout" even though the server eventually listens.
   const server = app.listen(Number(PORT), '0.0.0.0', () => {
-    console.log(`NumeriCode API listening on port:  ${PORT}`)
+    console.log(`NumeryCode API listening on port:  ${PORT}`)
     console.log(`Environment: ${process.env.NODE_ENV || 'production'}`)
 
     // Schedule DB tasks after the server is already accepting traffic.

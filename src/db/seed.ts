@@ -12,9 +12,9 @@ export async function seed() {
   // never violate the UNIQUE(email) constraint OR duplicate rows in tables that
   // have no unique key (e.g. courses). If any demo user already exists, skip.
   const DEMO_EMAILS = [
-    'emmanuel@numericode.com',
+    'emmanuel@numerycode.com',
     'nwaforugochukwu21@gmail.com',
-    'trainer@numericode.com',
+    'trainer@numerycode.com',
     'kolade@gmail.com',
     'amaka@gmail.com',
   ]
@@ -29,9 +29,9 @@ export async function seed() {
     // with a non-admin role by the self-service registration endpoint.
     const passwordHash = await bcrypt.hash('password123', 10)
     const ADMIN_ACCOUNTS = [
-      { name: 'Emmanuel Nwafor', email: 'emmanuel@numericode.com', role: 'admin' },
+      { name: 'Emmanuel Nwafor', email: 'emmanuel@numerycode.com', role: 'admin' },
       { name: 'Ugochukwu Nwafor', email: 'nwaforugochukwu21@gmail.com', role: 'admin' },
-      { name: 'Trainer One', email: 'trainer@numericode.com', role: 'trainer' },
+      { name: 'Trainer One', email: 'trainer@numerycode.com', role: 'trainer' },
     ]
     for (const acct of ADMIN_ACCOUNTS) {
       const { rows: found } = await query<{ id: string; role: string }>(
@@ -221,9 +221,9 @@ export async function seed() {
   const { rows: users } = await query<{ id: string; email: string }>(`
     INSERT INTO users (name, email, password_hash, role, status, account_activated)
     VALUES
-      ('Emmanuel Nwafor', 'emmanuel@numericode.com', $1, 'admin',   'active', TRUE),
+      ('Emmanuel Nwafor', 'emmanuel@numerycode.com', $1, 'admin',   'active', TRUE),
       ('Ugochukwu Nwafor', 'nwaforugochukwu21@gmail.com', $1, 'admin', 'active', TRUE),
-                  ('Trainer One',     'trainer@numericode.com',  $1, 'trainer', 'active', TRUE),
+                  ('Trainer One',     'trainer@numerycode.com',  $1, 'trainer', 'active', TRUE),
       ('Kolade Adebayo',  'kolade@gmail.com',         $1, 'student', 'active', TRUE),
       ('Amaka Okonkwo',   'amaka@gmail.com',          $1, 'student', 'active', TRUE),
       
@@ -233,9 +233,9 @@ export async function seed() {
     RETURNING id, email
   `, [passwordHash])
 
-  const admin   = users.find(u => u.email === 'emmanuel@numericode.com')!
+  const admin   = users.find(u => u.email === 'emmanuel@numerycode.com')!
   const adminUgochukwu = users.find(u => u.email === 'nwaforugochukwu21@gmail.com')!
-  const trainer = users.find(u => u.email === 'trainer@numericode.com')!
+  const trainer = users.find(u => u.email === 'trainer@numerycode.com')!
   const kolade   = users.find(u => u.email === 'kolade@gmail.com')!
   const amaka    = users.find(u => u.email === 'amaka@gmail.com')!
 
@@ -420,9 +420,9 @@ export async function seed() {
 
   await ensureCurriculumCatalog()
   console.log('Seed complete.')
-  console.log(`  Admin:   emmanuel@numericode.com      / password123`)
+  console.log(`  Admin:   emmanuel@numerycode.com      / password123`)
   console.log(`  Admin:   nwaforugochukwu21@gmail.com  / password123`)
-  console.log(`  Trainer: trainer@numericode.com        / password123`)
+  console.log(`  Trainer: trainer@numerycode.com        / password123`)
       console.log(`  Student: kolade@gmail.com               / password123`)
 }
 

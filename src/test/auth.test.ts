@@ -20,7 +20,7 @@ describe('POST /api/auth/login', () => {
   it('logs in with correct trainer credentials', async () => {
     const res = await request(app)
       .post('/api/auth/login')
-      .send({ email: 'trainer@numericode.com', password: 'password123' })
+      .send({ email: 'trainer@numerycode.com', password: 'password123' })
 
     expect(res.status).toBe(200)
     expect(res.body.data.user.role).toBe('trainer')
@@ -29,7 +29,7 @@ describe('POST /api/auth/login', () => {
   it('logs in with correct admin credentials', async () => {
     const res = await request(app)
       .post('/api/auth/login')
-      .send({ email: 'emmanuel@numericode.com', password: 'password123' })
+      .send({ email: 'emmanuel@numerycode.com', password: 'password123' })
 
     expect(res.status).toBe(200)
     expect(res.body.data.user.role).toBe('admin')

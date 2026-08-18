@@ -1,6 +1,6 @@
-# NumeriCode API
+# NumeryCode API
 
-> Backend for NumeriCode — Node.js + Express + TypeScript + PostgreSQL
+> Backend for NumeryCode — Node.js + Express + TypeScript + PostgreSQL
 >
 > Implements the full contract defined in the frontend's `API_CONTRACT.md`. Zero deviation.
 
@@ -22,7 +22,7 @@ cp .env.example .env
 # Edit .env — set DATABASE_URL to your PostgreSQL connection string
 
 # Create the database (if it doesn't exist)
-createdb numericode
+createdb numerycode
 
 # Run migrations (creates all 13 tables)
 npm run db:migrate
@@ -38,8 +38,8 @@ npm run dev   # → http://localhost:3001
 
 | Role    | Email                       | Password    |
 |---------|------------------------------|-------------|
-| Admin   | `emmanuel@numericode.com`    | password123 |
-| Trainer | `trainer@numericode.com`     | password123 |
+| Admin   | `emmanuel@numerycode.com`    | password123 |
+| Trainer | `trainer@numerycode.com`     | password123 |
 | Student | `kolade@gmail.com`           | password123 |
 
 ---
@@ -196,7 +196,7 @@ Tests run against a **real PostgreSQL database** (not mocked) — every query, j
 
 ## API Reference
 
-See `../numericode/API_CONTRACT.md` in the frontend repository for the complete, authoritative specification this backend implements — every endpoint, request body, response shape, and status code.
+See `../numerycode/API_CONTRACT.md` in the frontend repository for the complete, authoritative specification this backend implements — every endpoint, request body, response shape, and status code.
 
 ---
 
@@ -205,7 +205,7 @@ See `../numericode/API_CONTRACT.md` in the frontend repository for the complete,
 ```bash
 PORT=3001
 NODE_ENV=development
-DATABASE_URL=postgresql://postgres:password@localhost:5432/numericode
+DATABASE_URL=postgresql://postgres:password@localhost:5432/numerycode
 JWT_SECRET=your-super-secret-jwt-key-change-in-production
 JWT_EXPIRES_IN=7d
 CLIENT_URL=http://localhost:5173
@@ -230,7 +230,7 @@ npm test             # Run all 55 tests
 
 ## Connecting the Frontend
 
-In the frontend project (`numericode/.env`):
+In the frontend project (`numerycode/.env`):
 
 ```bash
 VITE_API_BASE_URL=http://localhost:3001/api

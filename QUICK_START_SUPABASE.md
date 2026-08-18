@@ -1,6 +1,6 @@
 # Quick Start: Supabase + Render (No Railway Access)
 
-Since your Railway trial expired, here's the fastest path to get your NumeriCode API running on Supabase + Render.
+Since your Railway trial expired, here's the fastest path to get your NumeryCode API running on Supabase + Render.
 
 ## ⏱️ Expected Time: 30-45 minutes
 
@@ -12,7 +12,7 @@ Since your Railway trial expired, here's the fastest path to get your NumeriCode
 2. Click **"New project"**
 3. Sign in with GitHub or email
 4. Fill in:
-   - **Project name**: `numericode`
+   - **Project name**: `numerycode`
    - **Database password**: Create a strong password (save it!)
    - **Region**: Choose closest to you
 5. Click **"Create new project"** and wait for initialization
@@ -83,9 +83,9 @@ git push
 1. Go to **[render.com](https://render.com)**
 2. Sign up with GitHub
 3. Click **"New" → "Web Service"**
-4. Select your `numericode-api` repository
+4. Select your `numerycode-api` repository
 5. Fill in:
-   - **Name**: `numericode-api`
+   - **Name**: `numerycode-api`
    - **Environment**: `Node`
    - **Build Command**: `npm install && npm run build`
    - **Start Command**: `npm start`
@@ -114,7 +114,7 @@ Click **"Save Changes"**
 
 Render will automatically deploy. Check **Logs** to see progress.
 
-Once deployed, you'll get a URL like: `https://numericode-api.onrender.com`
+Once deployed, you'll get a URL like: `https://numerycode-api.onrender.com`
 
 ---
 

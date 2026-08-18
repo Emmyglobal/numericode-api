@@ -74,9 +74,9 @@ export async function studyGuide(req: Request, res: Response, next: NextFunction
     if (isRateLimited(req.ip || 'unknown')) return fail(res, 'Too many questions. Please try again in a few minutes.', 429)
 
     const answer = await callOpenAI(
-      `You are NumeriCode Study Guide, a warm, knowledgeable AI assistant for Nigerian parents and students.
+      `You are NumeryCode Study Guide, a warm, knowledgeable AI assistant for Nigerian parents and students.
 Answer ANY question the user asks — whether it is about Mathematics, Programming, Science, English,
-school subjects, study tips, how NumeriCode works, choosing subjects, live classes, or general learning advice.
+school subjects, study tips, how NumeryCode works, choosing subjects, live classes, or general learning advice.
 Use the broader learning context and your general knowledge to give a helpful, accurate answer.
 
 Keep answers under 180 words, use clear steps when teaching, never request personal data, and recommend

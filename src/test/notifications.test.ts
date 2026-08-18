@@ -6,7 +6,7 @@ const app = createApp()
 let adminToken: string
 
 beforeAll(async () => {
-  const res = await request(app).post('/api/auth/login').send({ email: 'emmanuel@numericode.com', password: 'password123' })
+  const res = await request(app).post('/api/auth/login').send({ email: 'emmanuel@numerycode.com', password: 'password123' })
   adminToken = res.body.data.token
 })
 const auth = () => ({ Authorization: `Bearer ${adminToken}` })

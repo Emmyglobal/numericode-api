@@ -6,7 +6,7 @@ const app = createApp()
 let token: string
 
 beforeAll(async () => {
-  const res = await request(app).post('/api/auth/login').send({ email: 'trainer@numericode.com', password: 'password123' })
+  const res = await request(app).post('/api/auth/login').send({ email: 'trainer@numerycode.com', password: 'password123' })
   token = res.body.data.token
 })
 

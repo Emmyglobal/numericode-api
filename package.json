@@ -1,7 +1,7 @@
 {
-  "name": "numericode-api",
+  "name": "numerycode-api",
   "version": "1.0.0",
-  "description": "NumeriCode Backend API — Node.js + Express + TypeScript + PostgreSQL",
+  "description": "NumeryCode Backend API — Node.js + Express + TypeScript + PostgreSQL",
   "main": "dist/index.js",
   "scripts": {
     "dev": "ts-node-dev --respawn --transpile-only src/index.ts",
@@ -19,6 +19,7 @@
   "license": "ISC",
   "dependencies": {
     "@sendgrid/mail": "^8.1.3",
+    "@supabase/supabase-js": "^2.112.3",
     "@types/node-cron": "^3.0.11",
     "bcryptjs": "^3.0.3",
     "cors": "^2.8.6",

@@ -6,11 +6,11 @@ sgMail.setApiKey(process.env.SENDGRID_API_KEY || '')
 // CRITICAL - To avoid spam, EMAIL_FROM must be a sender verified in your
 // SendGrid account. Using unauthenticated Gmail addresses causes SPF/DKIM
 // failures, and receiving mail servers reject or spam the email.
-// Best: authenticate your custom domain (e.g. numericode.com) in SendGrid
+// Best: authenticate your custom domain (e.g. numerycode.com) in SendGrid
 // (Settings > Sender Authentication > Domain Authentication - adds DKIM/SPF
 // DNS records). Then EMAIL_FROM can be any address on that domain.
-const EMAIL_FROM = process.env.EMAIL_FROM || 'noreply@numericode.com'
-const EMAIL_FROM_NAME = process.env.EMAIL_FROM_NAME || 'NumeriCode'
+const EMAIL_FROM = process.env.EMAIL_FROM || 'noreply@numerycode.com'
+const EMAIL_FROM_NAME = process.env.EMAIL_FROM_NAME || 'NumeryCode'
 const CLIENT_URL = process.env.CLIENT_URL || 'http://localhost:5173'
 const CONTACT_EMAIL_TO = process.env.CONTACT_EMAIL_TO || 'nwaforugochukwu21@gmail.com'
 const CURRENT_YEAR = new Date().getFullYear()
@@ -47,8 +47,8 @@ function escapeHtml(s: string) {
 function plainTextFooter(): string {
   return (
     '\n\n---\n' +
-    'NumeriCode - https://www.numerycode.com\n' +
-    'This is an automated message from the NumeriCode learning platform. Please do not reply directly to this email.'
+    'NumeryCode - https://www.numerycode.com\n' +
+    'This is an automated message from the NumeryCode learning platform. Please do not reply directly to this email.'
   )
 }
 
@@ -58,9 +58,9 @@ function htmlFooter(): string {
     <table cellpadding="0" cellspacing="0" style="width:100%;">
       <tr>
         <td style="text-align:center; font-size:12px; color:#9ca3af; line-height:1.5;">
-          <p style="margin:0;">NumeriCode &mdash; <a href="https://www.numerycode.com" style="color:#2563EB; text-decoration:none;">www.numerycode.com</a></p>
-          <p style="margin:4px 0 0;">This is an automated message from the NumeriCode learning platform.</p>
-          <p style="margin:4px 0 0;">&copy; ${CURRENT_YEAR} NumeriCode. All rights reserved.</p>
+          <p style="margin:0;">NumeryCode &mdash; <a href="https://www.numerycode.com" style="color:#2563EB; text-decoration:none;">www.numerycode.com</a></p>
+          <p style="margin:4px 0 0;">This is an automated message from the NumeryCode learning platform.</p>
+          <p style="margin:4px 0 0;">&copy; ${CURRENT_YEAR} NumeryCode. All rights reserved.</p>
         </td>
       </tr>
     </table>`
@@ -129,7 +129,7 @@ export async function sendContactEmail(input: ContactMailInput) {
       from: { name: EMAIL_FROM_NAME, email: EMAIL_FROM },
       to: CONTACT_EMAIL_TO,
       replyTo: input.email,
-      subject: `[NumeriCode Contact] ${input.subject}`,
+      subject: `[NumeryCode Contact] ${input.subject}`,
       text: `From: ${input.name} <${input.email}>\n\n${input.message}${plainTextFooter()}`,
       html: buildHtml('New Contact Form Submission', `
         <table cellpadding="0" cellspacing="0" style="width:100%; font-size:15px; color:#374151; line-height:1.6;">
@@ -153,12 +153,12 @@ export async function sendWelcomeEmail(input: WelcomeMailInput) {
   try {
     await sendMail({
       to: input.email,
-      subject: `Welcome to NumeriCode, ${input.name}!`,
-      html: buildHtml('Welcome to NumeriCode!', `
+      subject: `Welcome to NumeryCode, ${input.name}!`,
+      html: buildHtml('Welcome to NumeryCode!', `
         <p style="font-size:16px; color:#374151; line-height:1.6;">Hi <strong>${escapeHtml(input.name)}</strong>,</p>
         <p style="font-size:16px; color:#374151; line-height:1.6;">
           Your <strong>${escapeHtml(input.role)}</strong> account has been created successfully.
-          You're now part of the NumeriCode learning community!
+          You're now part of the NumeryCode learning community!
         </p>
         <p style="font-size:16px; color:#374151; line-height:1.6;">
           Start exploring courses, attending live classes, and tracking your progress.
@@ -168,7 +168,7 @@ export async function sendWelcomeEmail(input: WelcomeMailInput) {
       text:
         `Hi ${input.name},\n\n` +
         `Your ${input.role} account has been created successfully. ` +
-        `You're now part of the NumeriCode learning community!\n\n` +
+        `You're now part of the NumeryCode learning community!\n\n` +
         `Go to your dashboard: ${dashboardLink}`,
     })
   } catch (err) {
@@ -182,11 +182,11 @@ export async function sendPasswordResetEmail(email: string, name: string, resetT
   try {
     await sendMail({
       to: email,
-      subject: 'Reset your NumeriCode password',
+      subject: 'Reset your NumeryCode password',
       html: buildHtml('Password Reset', `
         <p style="font-size:16px; color:#374151; line-height:1.6;">Hi <strong>${escapeHtml(name)}</strong>,</p>
         <p style="font-size:16px; color:#374151; line-height:1.6;">
-          We received a request to reset your NumeriCode password.
+          We received a request to reset your NumeryCode password.
           Click the button below to set a new password:
         </p>
         ${ctaButton(resetLink, 'Reset Password')}
@@ -196,7 +196,7 @@ export async function sendPasswordResetEmail(email: string, name: string, resetT
         </p>`),
       text:
         `Hi ${name},\n\n` +
-        `We received a request to reset your NumeriCode password.\n\n` +
+        `We received a request to reset your NumeryCode password.\n\n` +
         `Reset your password: ${resetLink}\n\n` +
         `This link will expire in 1 hour. If you didn't request this, ignore this email.`,
     })
@@ -209,7 +209,7 @@ export async function sendAdminApprovalEmail(input: { adminEmail: string; userNa
   try {
     await sendMail({
       to: input.adminEmail,
-      subject: 'New user awaiting approval - NumeriCode',
+      subject: 'New user awaiting approval - NumeryCode',
       html: buildHtml('New User Awaiting Approval', `
         <p style="font-size:16px; color:#374151; line-height:1.6;">
           A new <strong>${escapeHtml(input.role)}</strong> account is pending approval.
@@ -241,7 +241,7 @@ export async function sendActivationEmail(email: string, name: string, role: str
   try {
     await sendMail({
       to: email,
-      subject: 'Activate your NumeriCode account',
+      subject: 'Activate your NumeryCode account',
       html: buildHtml('Activate Your Account', `
         <p style="font-size:16px; color:#374151; line-height:1.6;">Hi <strong>${escapeHtml(name)}</strong>,</p>
         <p style="font-size:16px; color:#374151; line-height:1.6;">
@@ -275,11 +275,11 @@ export async function sendAccountSuspendedEmail(email: string, name: string, rea
   try {
     await sendMail({
       to: email,
-      subject: 'Your NumeriCode account has been suspended',
+      subject: 'Your NumeryCode account has been suspended',
       html: buildHtml('Account Suspended', `
         <p style="font-size:16px; color:#374151; line-height:1.6;">Hi <strong>${escapeHtml(name)}</strong>,</p>
         <p style="font-size:16px; color:#374151; line-height:1.6;">
-          Your NumeriCode account has been <strong>suspended</strong> by an administrator.
+          Your NumeryCode account has been <strong>suspended</strong> by an administrator.
         </p>
         ${reason ? `<p style="font-size:16px; color:#374151; line-height:1.6;"><strong>Reason:</strong> ${escapeHtml(reason)}</p>` : ''}
         <p style="font-size:16px; color:#374151; line-height:1.6;">
@@ -290,7 +290,7 @@ export async function sendAccountSuspendedEmail(email: string, name: string, rea
         </p>`),
       text:
         `Hi ${name},\n\n` +
-        `Your NumeriCode account has been suspended by an administrator.\n\n` +
+        `Your NumeryCode account has been suspended by an administrator.\n\n` +
         (reason ? `Reason: ${reason}\n\n` : '') +
         `You will not be able to access your account or any courses until this suspension is lifted.\n\n` +
         `If you believe this is a mistake, please contact support: ${CONTACT_EMAIL_TO}`,
@@ -304,11 +304,11 @@ export async function sendAccountDeletedEmail(email: string, name: string, reaso
   try {
     await sendMail({
       to: email,
-      subject: 'Your NumeriCode account has been deleted',
+      subject: 'Your NumeryCode account has been deleted',
       html: buildHtml('Account Deleted', `
         <p style="font-size:16px; color:#374151; line-height:1.6;">Hi <strong>${escapeHtml(name)}</strong>,</p>
         <p style="font-size:16px; color:#374151; line-height:1.6;">
-          Your NumeriCode account has been <strong>permanently deleted</strong> by an administrator.
+          Your NumeryCode account has been <strong>permanently deleted</strong> by an administrator.
         </p>
         ${reason ? `<p style="font-size:16px; color:#374151; line-height:1.6;"><strong>Reason:</strong> ${escapeHtml(reason)}</p>` : ''}
         <p style="font-size:16px; color:#374151; line-height:1.6;">
@@ -320,7 +320,7 @@ export async function sendAccountDeletedEmail(email: string, name: string, reaso
         </p>`),
       text:
         `Hi ${name},\n\n` +
-        `Your NumeriCode account has been permanently deleted by an administrator.\n\n` +
+        `Your NumeryCode account has been permanently deleted by an administrator.\n\n` +
         (reason ? `Reason: ${reason}\n\n` : '') +
         `All associated data including courses, enrollments, and progress have been removed.\n\n` +
         `If you have questions, please contact support: ${CONTACT_EMAIL_TO}`,

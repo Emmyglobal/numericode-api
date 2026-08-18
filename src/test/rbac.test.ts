@@ -10,8 +10,8 @@ let adminToken: string
 
 beforeAll(async () => {
   const student = await request(app).post('/api/auth/login').send({ email: 'kolade@gmail.com', password: 'password123' })
-  const trainer = await request(app).post('/api/auth/login').send({ email: 'trainer@numericode.com', password: 'password123' })
-  const admin   = await request(app).post('/api/auth/login').send({ email: 'emmanuel@numericode.com', password: 'password123' })
+  const trainer = await request(app).post('/api/auth/login').send({ email: 'trainer@numerycode.com', password: 'password123' })
+  const admin   = await request(app).post('/api/auth/login').send({ email: 'emmanuel@numerycode.com', password: 'password123' })
 
   studentToken = student.body.data.token
   trainerToken = trainer.body.data.token

@@ -22,7 +22,7 @@ const emptyCodeData = {
       id: 'main',
       name: 'main.js',
       language: 'javascript',
-      content: '// Welcome to the collaborative code editor!\n// Write your code here and run it together.\nconsole.log("Hello, NumeriCode!");',
+      content: '// Welcome to the collaborative code editor!\n// Write your code here and run it together.\nconsole.log("Hello, NumeryCode!");',
     },
   ],
 }

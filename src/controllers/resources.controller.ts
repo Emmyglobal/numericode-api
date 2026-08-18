@@ -2,6 +2,7 @@ import type { Request, Response, NextFunction } from 'express'
 import { query } from '../db/pool'
 import { ok, fail, notFound } from '../utils/response'
 import { singleResourceUpload } from '../middleware/upload'
+import { persistUploadedFile } from '../utils/fileStorage'
 import type { ResourceRow } from '../types'
 
 /**
@@ -65,22 +66,19 @@ export async function createResource(req: Request, res: Response, next: NextFunc
     let finalUrl = url
 
     if (isMultipart && (req as any).file) {
-      const file = (req as any).file as { mimetype: string; filename: string }
+      const file = (req as any).file as { mimetype: string; filename: string; originalname: string; path?: string; buffer?: Buffer }
       if (!finalType) {
-        if (file.mimetype.startsWith('application/pdf')) finalType = 'pdf'
-        else if (file.mimetype.startsWith('video/')) finalType = 'video'
-        else if (file.mimetype.startsWith('image/')) finalType = 'pdf'
+        if (file.mimetype.startsWith('video/')) finalType = 'video'
+        else if (file.mimetype === 'application/pdf' || file.originalname.toLowerCase().endsWith('.pdf')) finalType = 'pdf'
         else finalType = 'file'
       }
-      const host = (req.get('x-forwarded-host') || req.get('host') || '').toString()
-      const proto = (req.get('x-forwarded-proto') || req.protocol || 'http').toString()
-      finalUrl = `${proto}://${host}/uploads/${(req as any).file.filename}`
+      finalUrl = await persistUploadedFile(file as Express.Multer.File, req)
     }
 
     if (!finalType || !finalUrl) {
       return fail(res, 'type and url are required', 400)
     }
-    if (!['pdf', 'video', 'link'].includes(finalType)) return fail(res, 'Invalid resource type', 400)
+    if (!['pdf', 'video', 'link', 'file'].includes(finalType)) return fail(res, 'Invalid resource type', 400)
 
     // Verify the lesson exists and (for trainers) belongs to their course
     const { rows: lessonRows } = await query<{ course_id: string; instructor_id: string }>(

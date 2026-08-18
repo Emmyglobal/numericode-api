@@ -1,6 +1,6 @@
 services:
   - type: web
-    name: numericode-api
+    name: numerycode-api
     runtime: node
     plan: free
     buildCommand: npm install && npm run build

@@ -1,6 +1,6 @@
 # Migration Guide: Railway → Render + Supabase
 
-This guide walks you through migrating your NumeriCode API from Railway to Render with Supabase as the database.
+This guide walks you through migrating your NumeryCode API from Railway to Render with Supabase as the database.
 
 ## ⚠️ Important: No Railway Access?
 
@@ -23,7 +23,7 @@ You'll be up and running in ~30 minutes!
 - Sign up or log in
 - Click "New project"
 - Fill in:
-  - **Project name**: `numericode`
+  - **Project name**: `numerycode`
   - **Database password**: Create a strong password (save this!)
   - **Region**: Choose closest to your users
 - Click "Create new project"
@@ -43,7 +43,7 @@ By default, Supabase provides a `postgres` database. If you need to create a cus
 1. In Supabase dashboard, go to **SQL Editor**
 2. Create a new query:
 ```sql
-CREATE DATABASE numericode;
+CREATE DATABASE numerycode;
 ```
 3. Execute it
 
@@ -85,7 +85,7 @@ Look at your controllers to understand your schema structure, then create tables
 
 ```bash
 # Connect to your Railway database and dump the schema
-pg_dump -h your-railway-host -U postgres -d numericode --schema-only > schema.sql
+pg_dump -h your-railway-host -U postgres -d numerycode --schema-only > schema.sql
 ```
 
 Or use pgAdmin/DBeaver to export the schema.
@@ -104,7 +104,7 @@ Or use pgAdmin/DBeaver to export the schema.
 
 2. **Run migrations directly from your project**:
    ```bash
-   cd numericode-api
+   cd numerycode-api
    npm install
    npm run db:migrate
    ```
@@ -175,9 +175,9 @@ Test your API: `curl http://localhost:3001/health`
 ### 4.2 Deploy Web Service
 
 1. From Render dashboard: **New** → **Web Service**
-2. Select your `numericode-api` repository
+2. Select your `numerycode-api` repository
 3. Fill in:
-   - **Name**: `numericode-api`
+   - **Name**: `numerycode-api`
    - **Environment**: `Node`
    - **Build Command**: `npm install && npm run build`
    - **Start Command**: `npm start`

@@ -22,7 +22,7 @@ describe('Trainer Approval Lifecycle', () => {
     expect(blockedLogin.body.message).toMatch(/awaiting admin approval/i)
 
     // 3. Admin logs in and approves
-    const adminLogin = await request(app).post('/api/auth/login').send({ email: 'emmanuel@numericode.com', password: 'password123' })
+    const adminLogin = await request(app).post('/api/auth/login').send({ email: 'emmanuel@numerycode.com', password: 'password123' })
     const adminToken = adminLogin.body.data.token
 
     const usersRes = await request(app).get('/api/admin/users').set({ Authorization: `Bearer ${adminToken}` })
@@ -47,7 +47,7 @@ describe('Trainer Approval Lifecycle', () => {
     const email = `suspend-test-${Date.now()}@example.com`
     await request(app).post('/api/auth/register').send({ name: 'To Suspend', email, password: 'password123', role: 'trainer' })
 
-    const adminLogin = await request(app).post('/api/auth/login').send({ email: 'emmanuel@numericode.com', password: 'password123' })
+    const adminLogin = await request(app).post('/api/auth/login').send({ email: 'emmanuel@numerycode.com', password: 'password123' })
     const adminToken = adminLogin.body.data.token
 
     const usersRes = await request(app).get('/api/admin/users').set({ Authorization: `Bearer ${adminToken}` })
@@ -63,7 +63,7 @@ describe('Trainer Approval Lifecycle', () => {
   })
 
   it('rejects an invalid status value', async () => {
-    const adminLogin = await request(app).post('/api/auth/login').send({ email: 'emmanuel@numericode.com', password: 'password123' })
+    const adminLogin = await request(app).post('/api/auth/login').send({ email: 'emmanuel@numerycode.com', password: 'password123' })
     const adminToken = adminLogin.body.data.token
     const usersRes = await request(app).get('/api/admin/users').set({ Authorization: `Bearer ${adminToken}` })
     const anyUser = usersRes.body.data[0]

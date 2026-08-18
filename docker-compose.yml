@@ -2,7 +2,7 @@
 # Spins up Postgres + the API together. Run: docker compose up
 #
 # The frontend is not included here — run it separately with `npm run dev`
-# in the numericode/ project, pointing VITE_API_BASE_URL at http://localhost:3001/api
+# in the numerycode/ project, pointing VITE_API_BASE_URL at http://localhost:3001/api
 
 version: '3.9'
 
@@ -13,11 +13,11 @@ services:
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: password
-      POSTGRES_DB: numericode
+      POSTGRES_DB: numerycode
     ports:
       - '5432:5432'
     volumes:
-      - numericode_pgdata:/var/lib/postgresql/data
+      - numerycode_pgdata:/var/lib/postgresql/data
     healthcheck:
       test: ['CMD-SHELL', 'pg_isready -U postgres']
       interval: 5s
@@ -33,7 +33,7 @@ services:
     environment:
       NODE_ENV: development
       PORT: 3001
-      DATABASE_URL: postgresql://postgres:password@postgres:5432/numericode
+      DATABASE_URL: postgresql://postgres:password@postgres:5432/numerycode
       JWT_SECRET: dev-secret-change-me
       JWT_EXPIRES_IN: 7d
       CLIENT_URL: http://localhost:5173
@@ -41,4 +41,4 @@ services:
       - '3001:3001'
 
 volumes:
-  numericode_pgdata:
+  numerycode_pgdata:
