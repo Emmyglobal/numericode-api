@@ -70,9 +70,17 @@ try {
         id        UUID PRIMARY KEY DEFAULT gen_random_uuid(),
         lesson_id UUID NOT NULL REFERENCES lessons(id) ON DELETE CASCADE,
         title     VARCHAR(255) NOT NULL,
-        type      VARCHAR(10)  NOT NULL CHECK (type IN ('pdf','video','link')),
-        url       VARCHAR(512) NOT NULL
+        type      VARCHAR(10)  NOT NULL CHECK (type IN ('pdf','video','link','file')),
+        url       VARCHAR(2048) NOT NULL
       );
+      -- Widen the type check on databases created before the 'file' type was
+      -- added (idempotent + non-fatal so a deploy is never blocked).
+      DO $$ BEGIN
+        ALTER TABLE resources DROP CONSTRAINT IF EXISTS resources_type_check;
+      EXCEPTION WHEN OTHERS THEN NULL; END $$;
+      DO $$ BEGIN
+        ALTER TABLE resources ADD CONSTRAINT resources_type_check CHECK (type IN ('pdf','video','link','file'));
+      EXCEPTION WHEN OTHERS THEN NULL; END $$;
 
       -- Live classes
       CREATE TABLE IF NOT EXISTS live_classes (

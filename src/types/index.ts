@@ -8,7 +8,7 @@ export type CourseAccessLevel    = 'free' | 'premium'
 export type AssignmentStatus     = 'pending' | 'submitted' | 'under_review' | 'graded' | 'passed' | 'failed' | 'overdue'
 export type SubscriptionStatus   = 'pending' | 'active' | 'cancelled' | 'expired'
 export type SessionStatus        = 'scheduled' | 'live' | 'completed'
-export type ResourceType         = 'pdf' | 'video' | 'link'
+export type ResourceType         = 'pdf' | 'video' | 'link' | 'file'
 export type AnnouncementAudience = 'all' | 'students' | 'trainers'
 
 // ─── DB row shapes (snake_case matches PostgreSQL) ────────────────────────────
