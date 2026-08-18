@@ -5,7 +5,7 @@ import { forbidden } from '../utils/response'
 import { buildFullCourse } from './courses.controller'
 import type {
   CourseRow, EnrollmentRow, AssignmentRow, AnnouncementRow,
-  LiveClassRow, ResourceRow, UserRow,
+  LiveClassRow, UserRow,
 } from '../types'
 
 export async function getOverview(req: Request, res: Response, next: NextFunction) {
@@ -164,25 +164,6 @@ export async function getAnnouncements(_req: Request, res: Response, next: NextF
     return ok(res, rows.map(a => ({
       id: a.id, title: a.title, body: a.body,
       createdAt: a.created_at.toISOString().slice(0, 10), isRead: false,
-    })))
-  } catch (err) { next(err) }
-}
-
-export async function getResources(req: Request, res: Response, next: NextFunction) {
-  try {
-    const { rows } = await query<ResourceRow & { course_title: string }>(
-      `SELECT r.*, c.title AS course_title
-       FROM resources r
-       JOIN lessons l ON l.id = r.lesson_id
-       JOIN modules m ON m.id = l.module_id
-       JOIN courses c ON c.id = m.course_id
-       JOIN enrollments e ON e.course_id = c.id AND e.user_id = $1
-       WHERE c.access_level = 'free' OR (c.premium_enabled AND EXISTS (SELECT 1 FROM subscriptions s WHERE s.user_id = $1 AND s.status = 'active' AND s.ends_at > NOW()))`,
-      [req.user!.userId]
-    )
-    return ok(res, rows.map(r => ({
-      id: r.id, courseId: r.lesson_id, courseTitle: r.course_title,
-      title: r.title, type: r.type, url: r.url,
     })))
   } catch (err) { next(err) }
 }

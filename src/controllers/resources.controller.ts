@@ -7,32 +7,39 @@ import type { ResourceRow } from '../types'
 
 /**
  * GET /api/resources
- * List all resources across the trainer's courses (for trainer use).
- * GET /api/admin/resources
- * List all resources (admin use).
+ * List resources based on the caller's role:
+ *  - trainer → resources across their own courses
+ *  - student → resources from the courses they are enrolled in
+ *  - admin   → all resources (also reachable via GET /api/admin/resources)
  */
 export async function getResources(req: Request, res: Response, next: NextFunction) {
   try {
-    const isTrainer = req.user!.role === 'trainer'
-    const instructorId = req.user!.userId
+    const role = req.user!.role
+    const userId = req.user!.userId
+
+    const select = `SELECT r.*, l.title AS lesson_title, l.module_id, m.course_id, c.title AS course_title, c.instructor_id`
+    const from = ` FROM resources r
+       JOIN lessons l ON l.id = r.lesson_id
+       JOIN modules m ON m.id = l.module_id
+       JOIN courses c ON c.id = m.course_id`
+
+    let where = ''
+    const params: unknown[] = []
+
+    if (role === 'trainer') {
+      where = ' WHERE c.instructor_id = $1'
+      params.push(userId)
+    } else if (role === 'student') {
+      where = ` JOIN enrollments e ON e.course_id = c.id AND e.user_id = $1
+         WHERE c.access_level = 'free' OR (c.premium_enabled AND EXISTS (SELECT 1 FROM subscriptions s WHERE s.user_id = $1 AND s.status = 'active' AND s.ends_at > NOW()))`
+      params.push(userId)
+    }
 
     const { rows } = await query<ResourceRow & {
-      lesson_title: string; course_id: string; course_title: string; instructor_id: string
+      lesson_title: string; course_id: string; course_title: string
     }>(
-      isTrainer
-        ? `SELECT r.*, l.title AS lesson_title, l.module_id, m.course_id, c.title AS course_title, c.instructor_id
-           FROM resources r
-           JOIN lessons l ON l.id = r.lesson_id
-           JOIN modules m ON m.id = l.module_id
-           JOIN courses c ON c.id = m.course_id
-           WHERE c.instructor_id = $1 ORDER BY c.title, m.position, l.position`
-        : `SELECT r.*, l.title AS lesson_title, m.course_id, c.title AS course_title, c.instructor_id
-           FROM resources r
-           JOIN lessons l ON l.id = r.lesson_id
-           JOIN modules m ON m.id = l.module_id
-           JOIN courses c ON c.id = m.course_id
-           ORDER BY c.title, m.position, l.position`,
-      isTrainer ? [instructorId] : undefined
+      `${select}${from}${where} ORDER BY c.title, m.position, l.position`,
+      params
     )
 
     return ok(res, rows.map(r => ({

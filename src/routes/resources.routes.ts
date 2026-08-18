@@ -5,8 +5,9 @@ import { getResources, createResource, deleteResource, getLessonResources } from
 
 const router = Router()
 
-// Trainer routes
-router.get('/resources', requireAuth, requireRole('trainer' as const), getResources)
+// Role-aware route — the controller returns the right view for trainers,
+// students, and admins (see getResources docblock).
+router.get('/resources', requireAuth, getResources)
 router.post('/resources', requireAuth, requireRole('trainer' as const), singleResourceUpload.single('file'), createResource)
 router.delete('/resources/:id', requireAuth, requireRole('trainer' as const), deleteResource)
 
