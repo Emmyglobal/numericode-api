@@ -187,4 +187,15 @@ Then rebuild and redeploy your frontend.
 - **Render Issues**: https://render.com/docs
 - **PostgreSQL**: https://www.postgresql.org/docs/current/libpq-connect.html
 
+
+
+
+
+- Create a __public__ bucket named `resources` in Supabase Storage.
+
+- Set `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `SUPABASE_STORAGE_BUCKET=resources` on your backend host.
+
+- Redeploy — the upload path automatically switches to Supabase and files persist.
+
+
 Good luck! 🚀
