@@ -102,7 +102,7 @@ npm run db:seed
 
 ### Step 4 — Verify
 
-Same `curl` checks as the Railway section above, using your Render URL (e.g. `https://numerycode-api.onrender.com`).
+Same `curl` checks as the Railway section above, using your Render URL (e.g. `https://numericode-api.onrender.com`).
 
 ---
 

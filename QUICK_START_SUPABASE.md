@@ -114,7 +114,7 @@ Click **"Save Changes"**
 
 Render will automatically deploy. Check **Logs** to see progress.
 
-Once deployed, you'll get a URL like: `https://numerycode-api.onrender.com`
+Once deployed, you'll get a URL like: `https://numericode-api.onrender.com`
 
 ---
 
