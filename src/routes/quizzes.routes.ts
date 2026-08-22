@@ -1,7 +1,7 @@
 import { Router } from 'express'
 import { requireAuth, requireRole } from '../middleware/auth'
 import {
-  listQuizzes, getQuiz, createQuiz, updateQuiz, deleteQuiz,
+  listQuizzes, listLessonQuizzes, getQuiz, createQuiz, updateQuiz, deleteQuiz,
   addQuestion, updateQuestion, deleteQuestion,
   startQuizAttempt, submitQuizAttempt, getQuizAttempts
 } from '../controllers/quizzes.controller'
@@ -11,6 +11,7 @@ const guard = [requireAuth]
 
 // Quiz CRUD
 router.get('/courses/:courseId/quizzes', ...guard, listQuizzes)
+router.get('/lessons/:lessonId', ...guard, listLessonQuizzes)
 router.get('/quizzes/:id', ...guard, getQuiz)
 router.post('/quizzes', ...guard, requireRole('trainer' as const), createQuiz)
 router.put('/quizzes/:id', ...guard, requireRole('trainer' as const), updateQuiz)

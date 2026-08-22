@@ -44,6 +44,29 @@ export async function listQuizzes(req: Request, res: Response, next: NextFunctio
   } catch (err) { next(err) }
 }
 
+export async function listLessonQuizzes(req: Request, res: Response, next: NextFunction) {
+  try {
+    const lessonId = req.params.lessonId
+    const { rows } = await query<QuizRow & { question_count: string; attempt_count: string }>(
+      `SELECT q.*, 
+        (SELECT COUNT(*) FROM quiz_questions WHERE quiz_id = q.id) as question_count,
+        (SELECT COUNT(*) FROM quiz_attempts WHERE quiz_id = q.id AND user_id = $2) as attempt_count
+       FROM quizzes q
+       WHERE q.lesson_id = $1
+       ORDER BY q.created_at DESC`,
+      [lessonId, req.user!.userId]
+    )
+    return ok(res, rows.map(q => ({
+      id: q.id, courseId: q.course_id, moduleId: q.module_id, lessonId: q.lesson_id,
+      title: q.title, description: q.description, timeLimit: q.time_limit,
+      passingScore: Number(q.passing_score), maxAttempts: q.max_attempts,
+      shuffleQuestions: q.shuffle_questions, showResults: q.show_results,
+      questionCount: Number(q.question_count), attemptCount: Number(q.attempt_count),
+      createdAt: q.created_at.toISOString(),
+    })))
+  } catch (err) { next(err) }
+}
+
 export async function getQuiz(req: Request, res: Response, next: NextFunction) {
   try {
     const { rows: [quiz] } = await query<QuizRow>(
