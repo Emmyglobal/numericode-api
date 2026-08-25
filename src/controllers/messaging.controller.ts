@@ -33,13 +33,21 @@ export async function sendMessage(req: Request, res: Response, next: NextFunctio
       [senderId, receiverId, subject || null, body]
     )
 
+    // Determine a role-appropriate link so trainers land on the trainer inbox
+    // and students land on their own inbox. This "connects" the two sides of
+    // the student ↔ trainer conversation.
+    const { rows: [receiver] } = await query<{ role: string }>(
+      'SELECT role FROM users WHERE id = $1', [receiverId]
+    )
+    const messageLink = receiver?.role === 'trainer' ? '/trainer/messages' : '/dashboard/messages'
+
     // Send notification to receiver
     await notifyUser(
       receiverId,
       'New Message',
       `You have a new message${subject ? `: ${subject}` : ''}`,
       'general',
-      '/dashboard/messages'
+      messageLink
     )
 
     return ok(res, {

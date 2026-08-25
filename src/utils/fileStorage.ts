@@ -11,8 +11,13 @@ import type { Request } from 'express'
 // directory (which is auto-created) so uploads keep working out of the box.
 //
 // To enable persistent storage create a PUBLIC bucket named "resources" in the
-// Supabase dashboard, then set:
+// Supabase dashboard (Storage → New bucket → name: "resources", "Public"),
+// then set:
 //   SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, SUPABASE_STORAGE_BUCKET (=resources)
+//
+// The API already serves the local folder at /uploads (see src/app.ts) and CORS
+// is open (`origin: true`), so public Supabase object URLs work from the Vercel
+// frontend without extra configuration.
 
 const supabaseUrl = process.env.SUPABASE_URL
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY
