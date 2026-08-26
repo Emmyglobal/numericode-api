@@ -295,7 +295,129 @@ export async function seed() {
       ($2, 'JavaScript Q&A',         '2026-07-04T14:00:00Z', 60, 'https://zoom.us/j/123456',             'scheduled')
   `, [foundationMath.id, jsForBeginners.id])
 
+  // ── Prerequisite Quiz Course: Sequences & Series (SS2) ─────────────────────
+  // A course-level quiz that students must PASS before the course content unlocks.
+  // This mirrors the quiz HTML format delivered to students and validates the
+  // prerequisite-quiz gating feature end-to-end.
+  // NOTE: courses.title has no UNIQUE constraint, so we check existence first
+  // instead of using ON CONFLICT (title).
+  const { rows: seqExisting } = await query<{ id: string }>(
+    'SELECT id FROM courses WHERE title = $1',
+    ['Sequences & Series — SS2 Practice']
+  )
+  let sequencesCourse = seqExisting[0]
+  if (!sequencesCourse) {
+    const { rows: seqCourseRows } = await query<{ id: string }>(
+      `INSERT INTO courses (title, description, subject, level, instructor_id, status, lesson_count, outcomes)
+       VALUES
+         ('Sequences & Series — SS2 Practice',
+          'Twenty questions covering arithmetic progressions, geometric progressions, sums, means, and sigma notation. You must pass this quiz to open the course.',
+          'mathematics', 'beginner', $1, 'published', 5,
+          ARRAY['Identify AP and GP sequences','Calculate terms and sums','Apply sigma notation','Use arithmetic and geometric means'])
+       RETURNING id`,
+      [trainer.id]
+    )
+    sequencesCourse = seqCourseRows[0]
+  }
+
+    // Prerequisite quiz (course-level: module_id and lesson_id are NULL).
+  let seqQuizId: string | undefined
+  const { rows: existingSeqQuiz } = await query<{ id: string }>(
+    'SELECT id FROM quizzes WHERE course_id = $1 AND lesson_id IS NULL LIMIT 1',
+    [sequencesCourse.id]
+  )
+  if (existingSeqQuiz.length > 0) {
+    seqQuizId = existingSeqQuiz[0].id
+  } else {
+    const { rows: seqQuizRows } = await query<{ id: string }>(
+      `INSERT INTO quizzes (course_id, module_id, lesson_id, title, description, time_limit, passing_score, max_attempts, shuffle_questions, show_results, created_by)
+       VALUES ($1, NULL, NULL, 'Sequences & Series — SS2 Practice', 'Twenty questions covering arithmetic progressions, geometric progressions, sums, means, and sigma notation.', 20, 60, 2, FALSE, TRUE, $2)
+       RETURNING id`,
+      [sequencesCourse.id, trainer.id]
+    )
+    seqQuizId = seqQuizRows[0].id
+  }
+
+  // Link the quiz as this course's prerequisite (idempotent).
+  await query(
+    'UPDATE courses SET prerequisite_quiz_id = $1 WHERE id = $2',
+    [seqQuizId, sequencesCourse.id]
+  )
+
+  // Quiz questions — the 20-question SS2 Sequences & Series set (your format).
+  const seqQuestions: Array<{ text: string; type: string; opts: string; correct: string; pts: number }> = [
+    { text: 'Find the 10th term of the AP: 3, 7, 11, 15, …',                       type: 'multiple_choice', opts: JSON.stringify([{ id: 'a', text: '36', isCorrect: false }, { id: 'b', text: '39', isCorrect: true }, { id: 'c', text: '43', isCorrect: false }, { id: 'd', text: '40', isCorrect: false }]), correct: 'b', pts: 5 },
+    { text: 'What is the common difference of the AP: 5, 9, 13, 17, …?',           type: 'multiple_choice', opts: JSON.stringify([{ id: 'a', text: '3', isCorrect: false }, { id: 'b', text: '4', isCorrect: true }, { id: 'c', text: '5', isCorrect: false }, { id: 'd', text: '9', isCorrect: false }]), correct: 'b', pts: 5 },
+    { text: 'Find the sum of the first 15 terms of an AP with a = 4 and d = 3.',   type: 'multiple_choice', opts: JSON.stringify([{ id: 'a', text: '360', isCorrect: false }, { id: 'b', text: '375', isCorrect: true }, { id: 'c', text: '390', isCorrect: false }, { id: 'd', text: '345', isCorrect: false }]), correct: 'b', pts: 5 },
+    { text: 'An AP has first term 2 and common difference 5. What is the 20th term?', type: 'multiple_choice', opts: JSON.stringify([{ id: 'a', text: '95', isCorrect: false }, { id: 'b', text: '97', isCorrect: true }, { id: 'c', text: '102', isCorrect: false }, { id: 'd', text: '92', isCorrect: false }]), correct: 'b', pts: 5 },
+    { text: 'Find the 6th term of the GP: 2, 6, 18, 54, …',                        type: 'multiple_choice', opts: JSON.stringify([{ id: 'a', text: '162', isCorrect: false }, { id: 'b', text: '486', isCorrect: true }, { id: 'c', text: '324', isCorrect: false }, { id: 'd', text: '972', isCorrect: false }]), correct: 'b', pts: 5 },
+    { text: 'What is the common ratio of the GP: 81, 27, 9, 3, …?',              type: 'multiple_choice', opts: JSON.stringify([{ id: 'a', text: '1/3', isCorrect: true }, { id: 'b', text: '3', isCorrect: false }, { id: 'c', text: '1/9', isCorrect: false }, { id: 'd', text: '1/27', isCorrect: false }]), correct: 'a', pts: 5 },
+    { text: 'Find the sum of the first 5 terms of a GP with a = 3 and r = 2.',     type: 'multiple_choice', opts: JSON.stringify([{ id: 'a', text: '93', isCorrect: true }, { id: 'b', text: '96', isCorrect: false }, { id: 'c', text: '90', isCorrect: false }, { id: 'd', text: '81', isCorrect: false }]), correct: 'a', pts: 5 },
+    { text: 'Find the sum to infinity of a GP with a = 8 and r = 1/2.',            type: 'multiple_choice', opts: JSON.stringify([{ id: 'a', text: '4', isCorrect: false }, { id: 'b', text: '8', isCorrect: false }, { id: 'c', text: '16', isCorrect: true }, { id: 'd', text: '32', isCorrect: false }]), correct: 'c', pts: 5 },
+    { text: 'Three numbers in AP have a sum of 27. What is the middle number?',    type: 'multiple_choice', opts: JSON.stringify([{ id: 'a', text: '8', isCorrect: false }, { id: 'b', text: '9', isCorrect: true }, { id: 'c', text: '10', isCorrect: false }, { id: 'd', text: '13.5', isCorrect: false }]), correct: 'b', pts: 5 },
+    { text: 'Chidi saves ₦500 in the first month and increases his saving by ₦100 every month after. How much has he saved after 12 months?', type: 'multiple_choice', opts: JSON.stringify([{ id: 'a', text: '₦12,600', isCorrect: true }, { id: 'b', text: '₦11,600', isCorrect: false }, { id: 'c', text: '₦13,200', isCorrect: false }, { id: 'd', text: '₦12,000', isCorrect: false }]), correct: 'a', pts: 5 },
+  ]
+  for (let i = 0; i < seqQuestions.length; i++) {
+    await query(
+      `INSERT INTO quiz_questions (quiz_id, question_text, question_type, options, correct_answer, points, position)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+            [seqQuizId, seqQuestions[i].text, seqQuestions[i].type, seqQuestions[i].opts, seqQuestions[i].correct, seqQuestions[i].pts, i]
+    )
+  }
+
+  const seqQuestions2: Array<{ text: string; type: string; opts: string; correct: string; pts: number }> = [
+    { text: 'If x − 2, x + 1, and 2x + 3 are consecutive terms of an AP, find x.', type: 'multiple_choice', opts: JSON.stringify([{ id: 'a', text: '1', isCorrect: true }, { id: 'b', text: '2', isCorrect: false }, { id: 'c', text: '3', isCorrect: false }, { id: 'd', text: '0', isCorrect: false }]), correct: 'a', pts: 5 },
+    { text: 'What is the next term in the sequence: 1, 4, 9, 16, …?',          type: 'multiple_choice', opts: JSON.stringify([{ id: 'a', text: '20', isCorrect: false }, { id: 'b', text: '25', isCorrect: true }, { id: 'c', text: '21', isCorrect: false }, { id: 'd', text: '24', isCorrect: false }]), correct: 'b', pts: 5 },
+    { text: 'What is the next term in the sequence: 2, 3, 5, 8, 13, …?',        type: 'multiple_choice', opts: JSON.stringify([{ id: 'a', text: '18', isCorrect: false }, { id: 'b', text: '20', isCorrect: false }, { id: 'c', text: '21', isCorrect: true }, { id: 'd', text: '19', isCorrect: false }]), correct: 'c', pts: 5 },
+    { text: 'How many terms of the AP 2, 5, 8, … must be added to give a sum of 950?', type: 'multiple_choice', opts: JSON.stringify([{ id: 'a', text: '22', isCorrect: false }, { id: 'b', text: '25', isCorrect: true }, { id: 'c', text: '28', isCorrect: false }, { id: 'd', text: '20', isCorrect: false }]), correct: 'b', pts: 5 },
+    { text: 'Find the geometric mean of 4 and 16.',                            type: 'multiple_choice', opts: JSON.stringify([{ id: 'a', text: '10', isCorrect: false }, { id: 'b', text: '8', isCorrect: true }, { id: 'c', text: '6', isCorrect: false }, { id: 'd', text: '12', isCorrect: false }]), correct: 'b', pts: 5 },
+    { text: 'Find the arithmetic mean of 12 and 20.',                          type: 'multiple_choice', opts: JSON.stringify([{ id: 'a', text: '16', isCorrect: true }, { id: 'b', text: '15', isCorrect: false }, { id: 'c', text: '18', isCorrect: false }, { id: 'd', text: '14', isCorrect: false }]), correct: 'a', pts: 5 },
+    { text: 'Evaluate: Σ (2n + 1) for n = 1 to 5.',                            type: 'multiple_choice', opts: JSON.stringify([{ id: 'a', text: '30', isCorrect: false }, { id: 'b', text: '33', isCorrect: false }, { id: 'c', text: '35', isCorrect: true }, { id: 'd', text: '40', isCorrect: false }]), correct: 'c', pts: 5 },
+    { text: 'An AP has first term 5 and last term 41 across 10 terms. Find the common difference.', type: 'multiple_choice', opts: JSON.stringify([{ id: 'a', text: '3', isCorrect: false }, { id: 'b', text: '4', isCorrect: true }, { id: 'c', text: '5', isCorrect: false }, { id: 'd', text: '3.6', isCorrect: false }]), correct: 'b', pts: 5 },
+    { text: 'How many terms are in the GP: 3, 6, 12, …, 384?',                 type: 'multiple_choice', opts: JSON.stringify([{ id: 'a', text: '7', isCorrect: false }, { id: 'b', text: '8', isCorrect: true }, { id: 'c', text: '9', isCorrect: false }, { id: 'd', text: '6', isCorrect: false }]), correct: 'b', pts: 5 },
+    { text: 'Which of these sequences is geometric?',                          type: 'multiple_choice', opts: JSON.stringify([{ id: 'a', text: '2, 4, 6, 8', isCorrect: false }, { id: 'b', text: '3, 9, 27, 81', isCorrect: true }, { id: 'c', text: '1, 3, 6, 10', isCorrect: false }, { id: 'd', text: '5, 10, 15, 20', isCorrect: false }]), correct: 'b', pts: 5 },
+  ]
+  for (let i = 0; i < seqQuestions2.length; i++) {
+    await query(
+      `INSERT INTO quiz_questions (quiz_id, question_text, question_type, options, correct_answer, points, position)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+      [seqQuizId, seqQuestions2[i].text, seqQuestions2[i].type, seqQuestions2[i].opts, seqQuestions2[i].correct, seqQuestions2[i].pts, 10 + i]
+    )
+  }
+
+  // Modules + lessons for the Sequences course.
+  const { rows: seqModules } = await query<{ id: string }>(
+    `INSERT INTO modules (course_id, title, position) VALUES
+       ($1, 'Introduction to Sequences', 0),
+       ($1, 'Arithmetic Progressions', 1),
+       ($1, 'Geometric Progressions', 2),
+       ($1, 'Series and Sigma Notation', 3)
+     RETURNING id`,
+    [sequencesCourse.id]
+  )
+  await query(
+    `INSERT INTO lessons (module_id, title, duration, position) VALUES
+       ($1, 'What Is a Sequence?', 15, 0),
+       ($1, 'Recognising APs and GPs', 20, 1),
+       ($2, 'Finding the nth Term', 25, 0),
+       ($2, 'Sum of an Arithmetic Series', 30, 1),
+       ($3, 'Finding the Common Ratio', 25, 0),
+       ($3, 'Sum to Infinity', 30, 1),
+       ($4, 'Sigma Notation', 35, 0),
+       ($4, 'Word Problems on Series', 40, 1)`,
+    [seqModules[0].id, seqModules[1].id, seqModules[2].id, seqModules[3].id]
+  )
+
+  // Assignment for the Sequences course.
+  await query(
+    `INSERT INTO assignments (course_id, title, description, due_date, total_marks, passing_score)
+     VALUES ($1, 'Sequences & Series Assignment', 'Answer the word problems and show your working for full marks.', '2026-08-30T23:59:59Z', 100, 50)`,
+    [sequencesCourse.id]
+  )
+
+
   // ── Enrollments ────────────────────────────────────────────────────────────
+
   await query(`
     INSERT INTO enrollments (user_id, course_id, progress) VALUES
       ($1, $3, 42),

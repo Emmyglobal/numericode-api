@@ -21,6 +21,8 @@ export interface CourseRow {
   level: Level; instructor_id: string; status: CourseStatus
   lesson_count: number; outcomes: string[]; thumbnail_url: string | null
   access_level: CourseAccessLevel; price_cents: number; currency: string; premium_enabled: boolean
+  prerequisites: string[]; duration: string; enroll_count: number
+  prerequisite_quiz_id: string | null
   created_at: Date
 }
 export interface ModuleRow    { id: string; course_id: string; title: string; position: number }

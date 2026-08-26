@@ -45,6 +45,7 @@ try {
       ALTER TABLE courses ADD COLUMN IF NOT EXISTS currency VARCHAR(3) NOT NULL DEFAULT 'NGN';
       ALTER TABLE courses ADD COLUMN IF NOT EXISTS premium_enabled BOOLEAN NOT NULL DEFAULT TRUE;
 
+
       -- Modules
       CREATE TABLE IF NOT EXISTS modules (
         id        UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -355,6 +356,13 @@ try {
       CREATE INDEX IF NOT EXISTS idx_quizzes_course_id ON quizzes(course_id);
       ALTER TABLE quizzes ADD COLUMN IF NOT EXISTS lesson_id UUID REFERENCES lessons(id) ON DELETE SET NULL;
       ALTER TABLE quizzes ADD COLUMN IF NOT EXISTS module_id UUID REFERENCES modules(id) ON DELETE SET NULL;
+
+      -- Prerequisite quiz: when set on a course, an enrolled student must PASS
+      -- this quiz before the course content unlocks (see buildFullCourse +
+      -- CourseViewerPage). Declared here — AFTER the quizzes table exists — so
+      -- fresh-database migrations succeed. module_id/lesson_id are NULL for a
+      -- course-level prerequisite quiz.
+      ALTER TABLE courses ADD COLUMN IF NOT EXISTS prerequisite_quiz_id UUID REFERENCES quizzes(id) ON DELETE SET NULL;
 
       -- Quiz Questions
       CREATE TABLE IF NOT EXISTS quiz_questions (

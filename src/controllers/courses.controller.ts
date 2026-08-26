@@ -1,6 +1,6 @@
 import type { Request, Response, NextFunction } from 'express'
 import { query } from '../db/pool'
-import { ok, notFound, fail } from '../utils/response'
+import { ok, notFound, fail, forbidden } from '../utils/response'
 import type { CourseRow, ModuleRow, LessonRow, ResourceRow, LiveClassRow } from '../types'
 
 export async function buildFullCourse(course: CourseRow, includeProtectedContent = false, userId?: string) {
@@ -34,6 +34,32 @@ export async function buildFullCourse(course: CourseRow, includeProtectedContent
     'SELECT * FROM live_classes WHERE course_id = $1 ORDER BY date', [course.id]
   )
 
+  // ── Prerequisite quiz (course-level gating) ────────────────────────────────
+  // A course may declare a single course-level quiz (module_id/lesson_id NULL)
+  // that an enrolled student must PASS before the course content unlocks.
+  let prerequisiteQuiz: { id: string; title: string; description: string; passingScore: number } | null = null
+  let isPrerequisiteQuizPassed = false
+  if (course.prerequisite_quiz_id && userId) {
+    const { rows: pqRows } = await query<{ id: string; title: string; description: string; passing_score: number }>(
+      'SELECT id, title, description, passing_score FROM quizzes WHERE id = $1',
+      [course.prerequisite_quiz_id]
+    )
+    if (pqRows[0]) {
+      prerequisiteQuiz = {
+        id: pqRows[0].id,
+        title: pqRows[0].title,
+        description: pqRows[0].description,
+        passingScore: Number(pqRows[0].passing_score),
+      }
+      // A passing attempt (passed = TRUE) counts as unlocked.
+      const { rows: passRows } = await query<{ passed: boolean }>(
+        'SELECT passed FROM quiz_attempts WHERE quiz_id = $1 AND user_id = $2 AND passed = TRUE LIMIT 1',
+        [course.prerequisite_quiz_id, userId]
+      )
+      isPrerequisiteQuizPassed = passRows.length > 0
+    }
+  }
+
   return {
     id: course.id, title: course.title, description: course.description, content: course.content,
     subject: course.subject, level: course.level, lessonCount: course.lesson_count,
@@ -45,6 +71,7 @@ export async function buildFullCourse(course: CourseRow, includeProtectedContent
       id: lc.id, title: lc.title, date: lc.date.toISOString(),
       duration: lc.duration, meetUrl: includeProtectedContent ? lc.meet_url : '', status: lc.status,
     })),
+    prerequisiteQuiz: prerequisiteQuiz ? { ...prerequisiteQuiz, isPrerequisiteQuizPassed } : undefined,
   }
 }
 
@@ -193,5 +220,66 @@ export async function getCourseById(req: Request, res: Response, next: NextFunct
     const { rows } = await query<CourseRow>('SELECT * FROM courses WHERE id = $1', [req.params.id])
     if (!rows[0]) return notFound(res, 'Course not found')
     return ok(res, await buildFullCourse(rows[0]))
+  } catch (err) { next(err) }
+}
+
+// ─── Prerequisite quiz toggle (trainer who owns the course, or admin) ────────
+
+/** GET /courses/:id/prerequisite-quiz → { courseId, prerequisiteQuizId } */
+export async function getPrerequisiteQuiz(req: Request, res: Response, next: NextFunction) {
+  try {
+    const { rows } = await query<{ id: string; prerequisite_quiz_id: string | null }>(
+      'SELECT id, prerequisite_quiz_id FROM courses WHERE id = $1',
+      [req.params.id]
+    )
+    if (!rows[0]) return notFound(res, 'Course not found')
+    return ok(res, { courseId: rows[0].id, prerequisiteQuizId: rows[0].prerequisite_quiz_id })
+  } catch (err) { next(err) }
+}
+
+/**
+ * PUT /courses/:id/prerequisite-quiz  body: { quizId: string | null }
+ * Attach a course-level prerequisite quiz to a course, or detach it with null.
+ * Only the owning trainer or an admin may change this.
+ */
+export async function setPrerequisiteQuiz(req: Request, res: Response, next: NextFunction) {
+  try {
+    const { quizId } = req.body as { quizId?: string | null }
+    if (quizId !== null && quizId !== undefined && typeof quizId !== 'string') {
+      return fail(res, 'quizId must be a quiz id or null', 400)
+    }
+
+    const { rows: courseRows } = await query<CourseRow>('SELECT * FROM courses WHERE id = $1', [req.params.id])
+    if (!courseRows[0]) return notFound(res, 'Course not found')
+    const course = courseRows[0]
+
+    // Ownership: admins may manage any course; trainers only their own.
+    if (req.user!.role !== 'admin' && course.instructor_id !== req.user!.userId) {
+      return forbidden(res, 'You can only manage prerequisite quizzes for your own courses')
+    }
+
+    if (quizId) {
+      // The quiz must exist AND belong to this course.
+      const { rows: quizRows } = await query<{ id: string; course_id: string }>(
+        'SELECT id, course_id FROM quizzes WHERE id = $1',
+        [quizId]
+      )
+      if (!quizRows[0]) return notFound(res, 'Quiz not found')
+      if (quizRows[0].course_id !== course.id) {
+        return fail(res, 'The quiz must belong to the same course', 400)
+      }
+    }
+
+    const { rows: updated } = await query<{ id: string; prerequisite_quiz_id: string | null }>(
+      'UPDATE courses SET prerequisite_quiz_id = $1 WHERE id = $2 RETURNING id, prerequisite_quiz_id',
+      [quizId ?? null, course.id]
+    )
+    return ok(res, {
+      courseId: updated[0].id,
+      prerequisiteQuizId: updated[0].prerequisite_quiz_id,
+      message: updated[0].prerequisite_quiz_id
+        ? 'Prerequisite quiz set — students must pass it to unlock this course.'
+        : 'Prerequisite quiz removed — the course is now open to enrolled students.',
+    })
   } catch (err) { next(err) }
 }

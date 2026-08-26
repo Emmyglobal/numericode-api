@@ -115,7 +115,77 @@ export async function getStudentGradeBook(req: Request, res: Response, next: Nex
     const { rows } = await query<{ course_id: string; title: string }>(
       `SELECT c.id AS course_id, c.title FROM courses c JOIN enrollments e ON e.course_id = c.id WHERE e.user_id = $1`, [req.user!.userId]
     )
-    const gradeBooks = await Promise.all(rows.map(async course => ({ courseId: course.course_id, courseTitle: course.title, ...(await buildGradeBook(course.course_id, req.user!.userId))[0] })))
+    const gradeBooks = await Promise.all(rows.map(async course => ({
+      courseId: course.course_id,
+      courseTitle: course.title,
+      ...(await buildGradeBook(course.course_id, req.user!.userId))[0],
+      // Itemised results — EVERY written quiz and assignment score for this
+      // student in this course, so the grade screen never hides a result.
+      ...(await buildStudentCourseGrades(course.course_id, req.user!.userId)),
+    })))
     return ok(res, gradeBooks)
   } catch (error) { next(error) }
+}
+
+/**
+ * Every quiz and assignment score a student has in a course.
+ *  - quizzes: one entry per course quiz; `score` is the BEST completed attempt
+ *    (null when the student hasn't taken it yet).
+ *  - assignments: one entry per course assignment; `score` is null until graded.
+ */
+async function buildStudentCourseGrades(courseId: string, userId: string) {
+  const { rows: quizRows } = await query<{
+    quiz_id: string; title: string; passing_score: string
+    best_score: string | null; best_passed: boolean | null; attempt_count: string
+  }>(
+    `SELECT q.id AS quiz_id, q.title, q.passing_score,
+       MAX(qa.score) AS best_score,
+       BOOL_OR(qa.passed) AS best_passed,
+       COUNT(qa.id) FILTER (WHERE qa.completed_at IS NOT NULL) AS attempt_count
+     FROM quizzes q
+     LEFT JOIN quiz_attempts qa ON qa.quiz_id = q.id AND qa.user_id = $2 AND qa.completed_at IS NOT NULL
+     WHERE q.course_id = $1
+     GROUP BY q.id, q.title, q.passing_score
+     ORDER BY MIN(q.created_at)`,
+    [courseId, userId]
+  )
+
+  const { rows: assignmentRows } = await query<{
+    id: string; title: string; total_marks: number; due_date: Date
+    status: string | null; score: number | null; feedback: string | null
+  }>(
+    `SELECT a.id, a.title, a.total_marks, a.due_date,
+       s.status, s.score, s.feedback
+     FROM assignments a
+     LEFT JOIN submissions s ON s.assignment_id = a.id AND s.user_id = $2
+     WHERE a.course_id = $1
+     ORDER BY a.due_date`,
+    [courseId, userId]
+  )
+
+  return {
+    quizzes: quizRows.map(q => ({
+      quizId: q.quiz_id,
+      title: q.title,
+      // Best attempt as a percentage of points earned; null if never attempted.
+      score: q.best_score === null ? null : Math.round(Number(q.best_score)),
+      passed: q.best_passed ?? false,
+      attemptCount: Number(q.attempt_count),
+      passingScore: Math.round(Number(q.passing_score)),
+      written: Number(q.attempt_count) > 0,
+    })),
+    assignments: assignmentRows.map(a => ({
+      assignmentId: a.id,
+      title: a.title,
+      status: a.status ?? 'pending',
+      score: a.score === null ? null : Number(a.score),
+      totalMarks: Number(a.total_marks),
+      percentage: a.score === null || Number(a.total_marks) === 0
+        ? null
+        : Math.round((Number(a.score) / Number(a.total_marks)) * 100),
+      feedback: a.feedback,
+      submitted: a.status !== null,
+      written: a.status === 'graded' || a.status === 'passed' || a.status === 'failed',
+    })),
+  }
 }
