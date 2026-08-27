@@ -242,66 +242,82 @@ export async function getStudentGradeReport(req: Request, res: Response, next: N
   try {
     const { courseId } = req.params
     const userId = req.user!.userId
-    
-    // Get grade categories
+
+    // Course-wide quiz + assignment averages — computed ONCE, outside the
+    // categories loop, so a student's quiz performance always rolls into the
+    // course academic performance even when no grade categories are configured.
+    const { rows: [assignmentAvg] } = await query<{ avg_score: number | null }>(
+      `SELECT AVG(s.score) as avg_score
+       FROM submissions s
+       JOIN assignments a ON a.id = s.assignment_id
+       WHERE s.user_id = $1 AND a.course_id = $2 AND s.status = 'graded'`,
+      [userId, courseId]
+    )
+    const assignmentAverage = assignmentAvg?.avg_score != null ? Number(assignmentAvg.avg_score) : null
+
+    const { rows: [QuizAvg] } = await query<{ avg_score: number | null }>(
+      `SELECT AVG(qa.score) as avg_score
+       FROM quiz_attempts qa
+       JOIN quizzes q ON q.id = qa.quiz_id
+       WHERE qa.user_id = $1 AND q.course_id = $2 AND qa.completed_at IS NOT NULL AND qa.score IS NOT NULL`,
+      [userId, courseId]
+    )
+    const quizAverage = QuizAvg?.avg_score != null ? Number(QuizAvg.avg_score) : null
+
+    // Grade categories (if configured)
     const { rows: categories } = await query<GradeCategoryRow>(
       'SELECT * FROM grade_categories WHERE course_id = $1',
       [courseId]
     )
-    
-    // Calculate grades for each category
+
     const categoryGrades = await Promise.all(
       categories.map(async (category) => {
-        // Get assignment submission scores
-        const { rows: [assignmentAvg] } = await query<{ avg_score: number | null }>(
-          `SELECT AVG(s.score) as avg_score
-           FROM submissions s
-           JOIN assignments a ON a.id = s.assignment_id
-           WHERE s.user_id = $1 AND a.course_id = $2 AND s.status = 'graded'`,
-          [userId, courseId]
-        )
-        
-        // Get quiz attempt scores (completed/passed quizzes)
-        const { rows: [quizAvg] } = await query<{ avg_score: number | null }>(
-          `SELECT AVG(qa.score) as avg_score
-           FROM quiz_attempts qa
-           JOIN quizzes q ON q.id = qa.quiz_id
-           WHERE qa.user_id = $1 AND q.course_id = $2 AND qa.completed_at IS NOT NULL AND qa.score IS NOT NULL`,
-          [userId, courseId]
-        )
-        
-        // Combine scores: average of assignment and quiz scores
-        const assignmentScore = assignmentAvg?.avg_score ? Number(assignmentAvg.avg_score) : null
-        const quizScore = quizAvg?.avg_score ? Number(quizAvg.avg_score) : null
-        
-        let combinedScore: number
-        if (assignmentScore !== null && quizScore !== null) {
-          combinedScore = (assignmentScore + quizScore) / 2
-        } else if (assignmentScore !== null) {
-          combinedScore = assignmentScore
-        } else if (quizScore !== null) {
-          combinedScore = quizScore
-        } else {
-          combinedScore = 0
-        }
-        
+        // Assignment + quiz averages scoped to this course. (The schema doesn't
+        // link categories to specific assignments, so each category reflects the
+        // course-wide averages — as the original implementation did.)
+        const assignmentScore = assignmentAverage
+        const quizScore = quizAverage
+
+        let combined = 0
+        if (assignmentScore != null && quizScore != null) combined = (assignmentScore + quizScore) / 2
+        else if (assignmentScore != null) combined = assignmentScore
+        else if (quizScore != null) combined = quizScore
+
         return {
           categoryId: category.id,
           categoryName: category.name,
           weight: Number(category.weight),
-          averageScore: combinedScore,
+          averageScore: combined,
         }
       })
     )
-    
-    // Calculate overall grade
-    const overallGrade = categoryGrades.reduce((sum, cat) => {
-      return sum + (cat.averageScore * cat.weight / 100)
-    }, 0)
-    
+
+    // Overall grade: use weighted categories when the total weight is meaningful.
+    const totalWeight = categoryGrades.reduce((sum, cat) => sum + cat.weight, 0)
+    let overallGrade: number
+
+    if (categoryGrades.length > 0 && totalWeight > 0) {
+      // Normalize weights so configured categories always sum to 100%.
+      const normalized = categoryGrades.reduce((sum, cat) => {
+        return sum + (cat.averageScore * cat.weight / totalWeight)
+      }, 0)
+      overallGrade = normalized
+    } else {
+      // No (usable) grade categories — derive performance from actual quiz and
+      // assignment averages so taking the quiz directly affects the course grade.
+      const values: number[] = []
+      if (quizAverage != null) values.push(quizAverage)
+      if (assignmentAverage != null) values.push(assignmentAverage)
+      overallGrade = values.length > 0
+        ? values.reduce((a, b) => a + b, 0) / values.length
+        : 0
+    }
+
     return ok(res, {
       courseId,
       categories: categoryGrades,
+      quizAverage: quizAverage != null ? Number(quizAverage.toFixed(2)) : null,
+      assignmentAverage: assignmentAverage != null ? Number(assignmentAverage.toFixed(2)) : null,
       overallGrade: Number(overallGrade.toFixed(2)),
       letterGrade: getLetterGrade(Number(overallGrade.toFixed(2))),
     })
