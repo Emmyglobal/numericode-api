@@ -2,6 +2,7 @@ import type { Request, Response, NextFunction } from 'express'
 import { query } from '../db/pool'
 import { ok, fail, notFound } from '../utils/response'
 import { notifyUser } from '../utils/notify'
+import { sendTrainerMessageEmail } from '../utils/mailer'
 
 interface MessageRow {
   id: string; sender_id: string; receiver_id: string; subject: string | null
@@ -36,8 +37,8 @@ export async function sendMessage(req: Request, res: Response, next: NextFunctio
     // Determine a role-appropriate link so trainers land on the trainer inbox
     // and students land on their own inbox. This "connects" the two sides of
     // the student ↔ trainer conversation.
-    const { rows: [receiver] } = await query<{ role: string }>(
-      'SELECT role FROM users WHERE id = $1', [receiverId]
+    const { rows: [receiver] } = await query<{ role: string; name: string; email: string }>(
+      'SELECT role, name, email FROM users WHERE id = $1', [receiverId]
     )
     const messageLink = receiver?.role === 'trainer' ? '/trainer/messages' : '/dashboard/messages'
 
@@ -49,6 +50,23 @@ export async function sendMessage(req: Request, res: Response, next: NextFunctio
       'general',
       messageLink
     )
+
+    // Email the student when a trainer (or admin) sends them a message. This is
+    // fire-and-forget: a SendGrid failure must not fail the message insert.
+    if (receiver && receiver.role === 'student') {
+      const { rows: [sender] } = await query<{ role: string; name: string }>(
+        'SELECT role, name FROM users WHERE id = $1', [senderId]
+      )
+      if (sender && (sender.role === 'trainer' || sender.role === 'admin')) {
+        await sendTrainerMessageEmail({
+          to: receiver.email,
+          studentName: receiver.name,
+          trainerName: sender.name,
+          messageSubject: subject,
+          body,
+        }).catch(() => {})
+      }
+    }
 
     return ok(res, {
       id: message.id,

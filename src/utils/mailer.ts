@@ -123,6 +123,54 @@ export async function sendEmail(input: { to: string; subject: string; html: stri
   }
 }
 
+/**
+ * Notifies a student by email that a trainer has sent them a message.
+ * Triggers from messaging.controller sendMessage when a trainer writes to a
+ * student. Fire-and-forget: any SendGrid failure is logged, never fails the
+ * API request or the message insert.
+ */
+export async function sendTrainerMessageEmail(input: {
+  to: string
+  studentName: string
+  trainerName: string
+  messageSubject?: string | null
+  body: string
+}) {
+  const { to, studentName, trainerName, messageSubject, body } = input
+  const inboxLink = `${CLIENT_URL}/dashboard/messages`
+
+  try {
+    await sendMail({
+      to,
+      subject: messageSubject
+        ? `New message from ${trainerName}: ${messageSubject}`
+        : `New message from ${trainerName}`,
+      html: buildHtml('New Message From Your Trainer', `
+        <p style="font-size:16px; color:#374151; line-height:1.6;">Hi <strong>${escapeHtml(studentName)}</strong>,</p>
+        <p style="font-size:16px; color:#374151; line-height:1.6;">
+          <strong>${escapeHtml(trainerName)}</strong> has sent you a message in NumeryCode.
+        </p>
+        ${messageSubject ? `<p style="font-size:16px; color:#374151; line-height:1.6;"><strong>Subject:</strong> ${escapeHtml(messageSubject)}</p>` : ''}
+        <div style="background:#f5f7f9; border:1px solid #e5e7eb; border-left:4px solid #2563EB; border-radius:8px; padding:16px; margin:16px 0;">
+          <p style="margin:0; font-size:15px; color:#374151; line-height:1.6; white-space:pre-wrap;">${escapeHtml(body)}</p>
+        </div>
+        ${ctaButton(inboxLink, 'Open Messages')}
+        <p style="font-size:14px; color:#6b7280;">
+          Or copy and paste this link into your browser:<br />
+          <a href="${inboxLink}" style="color:#2563EB; word-break:break-all; font-size:13px;">${inboxLink}</a>
+        </p>`),
+      text:
+        `Hi ${studentName},\n\n` +
+        `${trainerName} has sent you a message on NumeryCode.` +
+        (messageSubject ? `\n\nSubject: ${messageSubject}` : '') +
+        `\n\n${body}\n\n` +
+        `Open your messages: ${inboxLink}`,
+    })
+  } catch (err) {
+    console.error('SendGrid sendTrainerMessageEmail failed:', err)
+  }
+}
+
 export async function sendContactEmail(input: ContactMailInput) {
   try {
     await sgMail.send({

@@ -55,6 +55,22 @@ export async function ensureCurriculumCatalog() {
   // and theory questions are all supported by the student exam screen.
   const { rows: htmlCourses } = await query<{ id: string }>('SELECT id FROM courses WHERE title = $1', ['HTML: Web Foundations'])
   if (!htmlCourses[0]) return
+
+  // Correction (idempotent): the alt-text true/false question was seeded with
+  // the wrong answer ('true'). Fix it for BOTH fresh seeds and existing live
+  // databases — this UPDATE runs even when the quiz already exists, so the
+  // corrected answer reaches production without needing to delete the quiz.
+  const correction = await query(
+    `UPDATE quiz_questions qq
+     SET correct_answer = 'false'
+     FROM quizzes q
+     WHERE qq.quiz_id = q.id
+       AND q.title = 'HTML Foundations Examination'
+       AND qq.question_text = 'The img element should include meaningful alt text.'
+       AND qq.correct_answer <> 'false'`
+  )
+  console.log(`  Alt-text question corrected: ${correction.rowCount ?? 0} row(s) updated.`)
+
   const { rows: existingQuiz } = await query<{ id: string }>('SELECT id FROM quizzes WHERE course_id = $1 AND title = $2', [htmlCourses[0].id, 'HTML Foundations Examination'])
   if (existingQuiz[0]) return
   const { rows: quizzes } = await query<{ id: string }>(
@@ -65,7 +81,7 @@ export async function ensureCurriculumCatalog() {
     `INSERT INTO quiz_questions (quiz_id, question_text, question_type, options, correct_answer, points, position) VALUES
     ($1, 'What does HTML stand for?', 'multiple_choice', '[{"id":"a","text":"HyperText Markup Language","isCorrect":true},{"id":"b","text":"Home Tool Markup Language","isCorrect":false},{"id":"c","text":"HighText Machine Language","isCorrect":false},{"id":"d","text":"Hyperlink Text Management Language","isCorrect":false}]', 'a', 10, 0),
     ($1, 'Which declaration belongs at the top of an HTML5 document?', 'multiple_choice', '[{"id":"a","text":"<html5>","isCorrect":false},{"id":"b","text":"<!DOCTYPE html>","isCorrect":true},{"id":"c","text":"<head>","isCorrect":false},{"id":"d","text":"<meta charset>","isCorrect":false}]', 'b', 10, 1),
-    ($1, 'The img element should include meaningful alt text.', 'true_false', NULL, 'true', 10, 2),
+    ($1, 'The img element should include meaningful alt text.', 'true_false', NULL, 'false', 10, 2),
     ($1, 'Which tag creates an unordered list?', 'fill_blank', NULL, 'ul', 10, 3),
     ($1, 'Explain why semantic elements such as main, nav, and article are useful. Include one short HTML example.', 'essay', NULL, NULL, 20, 4)`,
     [quizzes[0].id]
