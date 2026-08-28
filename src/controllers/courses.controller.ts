@@ -96,15 +96,51 @@ export async function listCourses(req: Request, res: Response, next: NextFunctio
 
 export async function listAvailableTeachers(_req: Request, res: Response, next: NextFunction) {
   try {
-    const { rows } = await query<{ id: string; name: string; bio: string; avatarUrl: string | null; subjects: string[] }>(
-      `SELECT u.id, u.name, u.bio, u.avatar_url AS "avatarUrl", ARRAY_AGG(DISTINCT c.subject ORDER BY c.subject) AS subjects
+    const { rows } = await query<{
+      id: string; name: string; bio: string; avatarUrl: string | null; subjects: string[]; courses: { id: string; title: string; subject: string; level: string }[]
+    }>(
+      `SELECT u.id, u.name, u.bio, u.avatar_url AS "avatarUrl",
+              ARRAY_AGG(DISTINCT c.subject ORDER BY c.subject) AS subjects,
+              COALESCE(
+                json_agg(json_build_object('id', c.id, 'title', c.title, 'subject', c.subject, 'level', c.level) ORDER BY c.title)
+                  FILTER (WHERE c.status = 'published'), '[]'
+              ) AS courses
        FROM users u
        INNER JOIN courses c ON c.instructor_id = u.id
-       WHERE c.status = 'published' AND u.status = 'active'
-       GROUP BY u.id, u.name
+       WHERE u.status = 'active'
+       GROUP BY u.id, u.name, u.bio, u.avatar_url
        ORDER BY u.name`
     )
     return ok(res, rows)
+  } catch (err) { next(err) }
+}
+
+export async function getTrainerProfile(req: Request, res: Response, next: NextFunction) {
+  try {
+    const { rows: trainerRows } = await query<{ id: string; name: string; bio: string; avatar_url: string | null }>(
+      `SELECT id, name, bio, avatar_url FROM users WHERE id = $1 AND role = 'trainer' AND status = 'active'`,
+      [req.params.id]
+    )
+    if (!trainerRows[0]) return notFound(res, 'Registered trainer not found')
+    const trainer = trainerRows[0]
+    const { rows: courseRows } = await query<{ id: string; title: string; subject: string; level: string; lesson_count: number }>(
+      `SELECT id, title, subject, level, lesson_count
+       FROM courses
+       WHERE instructor_id = $1 AND status = 'published'
+       ORDER BY title`,
+      [trainer.id]
+    )
+    const subjects = [...new Set(courseRows.map(c => c.subject))] as string[]
+    return ok(res, {
+      id: trainer.id,
+      name: trainer.name,
+      bio: trainer.bio,
+      avatarUrl: trainer.avatar_url ?? undefined,
+      subjects,
+      courses: courseRows.map(c => ({
+        id: c.id, title: c.title, subject: c.subject, level: c.level, lessonCount: c.lesson_count,
+      })),
+    })
   } catch (err) { next(err) }
 }
 

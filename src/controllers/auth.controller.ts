@@ -25,6 +25,26 @@ const DISPOSABLE_EMAIL_DOMAINS = [
   'throwaway.email', 'fakeinbox.com', 'temp-mail.org', 'dispostable.com'
 ]
 
+// Policy version identifiers. Bump a version here when the corresponding legal
+// document changes so the audit trail can show which version each user accepted,
+// and so a future re-acceptance flow can target users whose accepted version is
+// behind the current one.
+const POLICY_VERSIONS = {
+  terms: '1.0',
+  privacy: '1.0',
+  acceptable_use: '1.0',
+} as const
+
+function validatePolicyAcceptance(body: Record<string, unknown>): string | null {
+  const terms = body.termsAccepted
+  const privacy = body.privacyPolicyAcknowledged
+  const acceptableUse = body.acceptableUseAccepted
+  if (terms !== true) return 'You must accept the Terms of Service before creating an account.'
+  if (privacy !== true) return 'You must acknowledge the Privacy Policy before creating an account.'
+  if (acceptableUse !== true) return 'You must agree to follow the Acceptable Use Policy before creating an account.'
+  return null
+}
+
 function validateEmail(email: string): { valid: boolean; reason?: string } {
   // Basic format check
   if (!EMAIL_REGEX.test(email)) {
@@ -104,6 +124,12 @@ export async function register(req: Request, res: Response, next: NextFunction) 
 
     if (password.length < 8) return fail(res, 'Password must be at least 8 characters', 400)
 
+    // Policy acceptance is REQUIRED for any self-service registration. This is
+    // enforced on the backend, not just the UI — the account is not created
+    // unless all three required policies have been explicitly accepted.
+    const acceptanceError = validatePolicyAcceptance(req.body as Record<string, unknown>)
+    if (acceptanceError) return fail(res, acceptanceError, 400)
+
     // Security: public registration may only create 'student' or 'trainer' accounts.
     // 'admin' is deliberately excluded — even if a request is crafted directly against
     // the API (bypassing the frontend UI entirely), this is the enforcement point that
@@ -140,6 +166,18 @@ export async function register(req: Request, res: Response, next: NextFunction) 
         [name, email, passwordHash, finalRole, initialStatus]
       )
       user = rows[0]
+
+      // Record explicit, auditable acceptance of each required policy (with the
+      // accepted version + timestamp), in the SAME transaction as the user so a
+      // failed acceptance insert never leaves an account without consent trail.
+      await client.query(
+        `INSERT INTO user_policy_acceptances (user_id, policy_type, policy_version) VALUES
+           ($1, 'terms', $2),
+           ($1, 'privacy', $3),
+           ($1, 'acceptable_use', $4)
+         ON CONFLICT (user_id, policy_type) DO NOTHING`,
+        [user.id, POLICY_VERSIONS.terms, POLICY_VERSIONS.privacy, POLICY_VERSIONS.acceptable_use]
+      )
 
       if (finalRole === 'student' && hasGuardianDetails) {
         const useAutomaticMatching = preferredTeacherId === 'auto'

@@ -25,6 +25,8 @@ import analyticsRoutes    from './routes/analytics.routes'
 import messagingRoutes    from './routes/messaging.routes'
 import badgesRoutes       from './routes/badges.routes'
 import resourcesRoutes    from './routes/resources.routes'
+import statsRoutes        from './routes/stats.routes'
+import testimonialsRoutes from './routes/testimonials.routes'
 import trainerCourseContentRoutes from './routes/trainer-course-content.routes'
 import adminCourseContentRoutes from './routes/admin-course-content.routes'
 import { errorHandler, notFoundHandler } from './middleware/errorHandler'
@@ -81,6 +83,9 @@ app.get('/health', (_req, res) => {
   app.use('/api', messagingRoutes)
   app.use('/api', badgesRoutes)
   app.use('/api', resourcesRoutes)
+  app.use('/api/stats', statsRoutes)
+  app.use('/api/testimonials', testimonialsRoutes)
+  app.use('/api/admin/testimonials', testimonialsRoutes)
 
   app.use(notFoundHandler)
   app.use(errorHandler)

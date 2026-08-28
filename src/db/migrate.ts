@@ -608,6 +608,34 @@ try {
 
       -- Add content column to lessons if not exists (for existing databases)
       ALTER TABLE lessons ADD COLUMN IF NOT EXISTS content TEXT NOT NULL DEFAULT '';
+
+      -- Testimonials collection — email-gated submissions; only approved shown publicly
+      CREATE TABLE IF NOT EXISTS testimonials (
+        id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        name       VARCHAR(255) NOT NULL,
+        email      VARCHAR(255) NOT NULL,
+        course     VARCHAR(255),
+        location   VARCHAR(255),
+        message    TEXT NOT NULL,
+        consent    BOOLEAN NOT NULL DEFAULT TRUE,
+        status     VARCHAR(20) NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','approved','rejected')),
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      );
+      CREATE INDEX IF NOT EXISTS idx_testimonials_status ON testimonials(status);
+
+      -- Legal / policy acceptance audit — records which version of each policy a
+      -- user actively accepted and when (explicit, auditable consent; NOT one
+      -- hidden boolean). Enforced at registration; designed so a future policy
+      -- update can identify users whose accepted_version is behind.
+      CREATE TABLE IF NOT EXISTS user_policy_acceptances (
+        id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        user_id       UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        policy_type   VARCHAR(40) NOT NULL CHECK (policy_type IN ('terms','privacy','acceptable_use')),
+        policy_version VARCHAR(20) NOT NULL,
+        accepted_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        UNIQUE(user_id, policy_type)
+      );
+      CREATE INDEX IF NOT EXISTS idx_user_policy_acceptances_user_id ON user_policy_acceptances(user_id);
     `);
 
     console.log('Migrations completed successfully!');
