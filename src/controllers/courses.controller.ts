@@ -75,23 +75,135 @@ export async function buildFullCourse(course: CourseRow, includeProtectedContent
   }
 }
 
-export async function listCourses(req: Request, res: Response, next: NextFunction) {
+export async function listCourses(req: Request, res: Response) {
   try {
-    const { subject, q, accessLevel } = req.query as { subject?: string; q?: string; accessLevel?: string }
-    const conditions: string[] = [`status = 'published'`]
+    const subject = typeof req.query.subject === "string" ? req.query.subject.trim() : ""
+    const q = typeof req.query.q === "string" ? req.query.q.trim() : ""
+    const accessLevel = typeof req.query.accessLevel === "string" ? req.query.accessLevel.trim() : ""
+    const level = typeof req.query.level === "string" ? req.query.level.trim() : ""
+    const instructorId = typeof req.query.instructorId === "string" ? req.query.instructorId.trim() : ""
+    const sort = typeof req.query.sort === "string" ? req.query.sort : "newest"
+
+    // Pagination — safe bounds: default limit 12, maximum 50, offset never negative.
+    const limitRaw = req.query.limit !== undefined ? parseInt(String(req.query.limit), 10) : 12
+    const offsetRaw = req.query.offset !== undefined ? parseInt(String(req.query.offset), 10) : 0
+    const limit = Number.isFinite(limitRaw) ? Math.min(Math.max(limitRaw, 1), 50) : 12
+    const offset = Number.isFinite(offsetRaw) ? Math.max(offsetRaw, 0) : 0
+
+    // Public catalogue: published courses only.
+    const where: string[] = ["c.status = 'published'"]
     const params: unknown[] = []
+    if (subject) {
+      params.push(subject)
+      where.push(`subject = $${params.length}`)
+    }
+    if (accessLevel) {
+      params.push(accessLevel)
+      where.push(`access_level = $${params.length}`)
+    }
+    if (level) {
+      params.push(level)
+      where.push(`level = $${params.length}`)
+    }
+    if (instructorId) {
+      params.push(instructorId)
+      where.push(`instructor_id::text = $${params.length}`)
+    }
+    if (q) {
+      params.push(`%${q}%`)
+      where.push(`(title ILIKE $${params.length} OR description ILIKE $${params.length})`)
+    }
+    const whereSql = where.join(" AND ")
 
-    if (subject) { params.push(subject); conditions.push(`subject = $${params.length}`) }
-    if (q)       { params.push(`%${q}%`); conditions.push(`(title ILIKE $${params.length} OR description ILIKE $${params.length})`) }
-    if (accessLevel && ['free', 'premium'].includes(accessLevel)) { params.push(accessLevel); conditions.push(`access_level = $${params.length}`) }
+    // Whitelisted sort options — never interpolate raw user input.
+    const orderBy =
+      sort === "title"
+        ? "c.title ASC"
+        : sort === "level"
+          ? "CASE c.level WHEN 'beginner' THEN 0 WHEN 'intermediate' THEN 1 ELSE 2 END ASC, c.created_at DESC"
+          : "c.created_at DESC"
 
-    const { rows } = await query<CourseRow>(
-      `SELECT * FROM courses WHERE ${conditions.join(' AND ')} ORDER BY created_at DESC`,
+    const countResult = await query<{ total: string }>(
+      `SELECT COUNT(*)::text AS total FROM courses c WHERE ${whereSql}`,
       params
     )
-    const fullCourses = await Promise.all(rows.map(course => buildFullCourse(course)))
-    return ok(res, fullCourses)
-  } catch (err) { next(err) }
+    const total = parseInt(countResult.rows[0]?.total ?? "0", 10)
+
+    const listParams = [...params, limit, offset]
+    const limitIdx = listParams.length - 1
+    const offsetIdx = listParams.length
+
+    // Slim catalogue payload — course-card fields only, with privacy-safe
+    // public trainer information (id, name, bio, avatar_url). No modules,
+    // lessons or resources: those belong to the single-course detail endpoint.
+    const { rows } = await query<{
+      id: string
+      title: string
+      description: string
+      subject: string
+      level: string
+      lesson_count: number
+      outcomes: string[] | null
+      thumbnail_url: string | null
+      access_level: string
+      price_cents: number | null
+      currency: string | null
+      premium_enabled: boolean
+      created_at: string
+      instructor_id: string
+      instructor_name: string
+      instructor_bio: string | null
+      instructor_avatar: string | null
+    }>(
+      `SELECT c.id, c.title, c.description, c.subject, c.level, c.lesson_count, c.outcomes,
+              c.thumbnail_url, c.access_level, c.price_cents, c.currency, c.premium_enabled, c.created_at,
+              u.id AS instructor_id, u.name AS instructor_name, u.bio AS instructor_bio,
+              u.avatar_url AS instructor_avatar
+         FROM courses c
+         JOIN users u ON u.id = c.instructor_id
+        WHERE ${whereSql}
+        ORDER BY ${orderBy}
+        LIMIT $${limitIdx} OFFSET $${offsetIdx}`,
+      listParams
+    )
+
+    const courses = rows.map((row) => ({
+      id: row.id,
+      title: row.title,
+      description: row.description,
+      subject: row.subject,
+      level: row.level,
+      lessonCount: row.lesson_count,
+      outcomes: row.outcomes ?? [],
+      thumbnailUrl: row.thumbnail_url,
+      accessLevel: row.access_level,
+      priceCents: row.price_cents,
+      currency: row.currency,
+      premiumEnabled: row.premium_enabled,
+      createdAt: row.created_at,
+      instructor: {
+        id: row.instructor_id,
+        name: row.instructor_name,
+        bio: row.instructor_bio ?? "",
+        avatarUrl: row.instructor_avatar,
+      },
+    }))
+
+    return res.json({
+      success: true,
+      data: courses,
+      pagination: {
+        total,
+        limit,
+        offset,
+        count: courses.length,
+        hasMore: offset + courses.length < total,
+      },
+    })
+  } catch (err) {
+    console.error("listCourses error:", err)
+    return res.status(500).json({ success: false, message: "Internal server error" })
+  }
 }
 
 export async function listAvailableTeachers(_req: Request, res: Response, next: NextFunction) {
@@ -253,7 +365,12 @@ export async function enrollInCourses(req: Request, res: Response, next: NextFun
 
 export async function getCourseById(req: Request, res: Response, next: NextFunction) {
   try {
-    const { rows } = await query<CourseRow>('SELECT * FROM courses WHERE id = $1', [req.params.id])
+    // Public detail endpoint: ONLY published courses are accessible.
+    // (Draft/archived management happens through authenticated trainer/admin routes.)
+    const { rows } = await query<CourseRow>(
+            `SELECT * FROM courses WHERE id = $1 AND status = 'published'`,
+      [req.params.id]
+    )
     if (!rows[0]) return notFound(res, 'Course not found')
     return ok(res, await buildFullCourse(rows[0]))
   } catch (err) { next(err) }
