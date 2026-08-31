@@ -229,28 +229,64 @@ export async function listAvailableTeachers(_req: Request, res: Response, next: 
 
 export async function getTrainerProfile(req: Request, res: Response, next: NextFunction) {
   try {
-    const { rows: trainerRows } = await query<{ id: string; name: string; bio: string; avatar_url: string | null }>(
+    // Public profiles only: active trainers. Draft/suspended/deactivated trainers are not discoverable.
+    const { rows: trainerRows } = await query<{ id: string; name: string; bio: string | null; avatar_url: string | null }>(
       `SELECT id, name, bio, avatar_url FROM users WHERE id = $1 AND role = 'trainer' AND status = 'active'`,
       [req.params.id]
     )
     if (!trainerRows[0]) return notFound(res, 'Registered trainer not found')
     const trainer = trainerRows[0]
-    const { rows: courseRows } = await query<{ id: string; title: string; subject: string; level: string; lesson_count: number }>(
-      `SELECT id, title, subject, level, lesson_count
-       FROM courses
-       WHERE instructor_id = $1 AND status = 'published'
-       ORDER BY title`,
+    // Only published courses appear on the public profile. The payload mirrors
+    // the slim catalogue shape so the frontend can render shared CourseCards.
+    const { rows: courseRows } = await query<{
+      id: string
+      title: string
+      description: string
+      subject: string
+      level: string
+      lesson_count: number
+      outcomes: string[] | null
+      thumbnail_url: string | null
+      access_level: string
+      price_cents: number | null
+      currency: string | null
+      premium_enabled: boolean
+      created_at: string
+    }>(
+      `SELECT c.id, c.title, c.description, c.subject, c.level, c.lesson_count, c.outcomes,
+              c.thumbnail_url, c.access_level, c.price_cents, c.currency, c.premium_enabled, c.created_at
+       FROM courses c
+       WHERE c.instructor_id = $1 AND c.status = 'published'
+       ORDER BY c.title`,
       [trainer.id]
     )
     const subjects = [...new Set(courseRows.map(c => c.subject))] as string[]
     return ok(res, {
       id: trainer.id,
       name: trainer.name,
-      bio: trainer.bio,
+      bio: trainer.bio ?? '',
       avatarUrl: trainer.avatar_url ?? undefined,
       subjects,
-      courses: courseRows.map(c => ({
-        id: c.id, title: c.title, subject: c.subject, level: c.level, lessonCount: c.lesson_count,
+      courses: courseRows.map((c) => ({
+        id: c.id,
+        title: c.title,
+        description: c.description,
+        subject: c.subject,
+        level: c.level,
+        lessonCount: c.lesson_count,
+        outcomes: c.outcomes ?? [],
+        thumbnailUrl: c.thumbnail_url,
+        accessLevel: c.access_level,
+        priceCents: c.price_cents,
+        currency: c.currency,
+        premiumEnabled: c.premium_enabled,
+        createdAt: c.created_at,
+        instructor: {
+          id: trainer.id,
+          name: trainer.name,
+          bio: trainer.bio ?? '',
+          avatarUrl: trainer.avatar_url ?? undefined,
+        },
       })),
     })
   } catch (err) { next(err) }
