@@ -67,13 +67,14 @@ This is a complete 12-week course. Each week has its own module containing struc
 /** Idempotently seed the SS2 Mathematics — First Term course and its exam quiz. */
 export async function ensureSS2MathematicsCourse() {
   const { rows: instructors } = await query<{ id: string }>(
-    "SELECT id FROM users WHERE role IN ('trainer', 'admin') AND status = 'active' ORDER BY created_at LIMIT 1"
+    "SELECT id FROM users WHERE role = 'trainer' AND status = 'active' AND account_activated = TRUE ORDER BY created_at LIMIT 1"
   )
-  const instructorId = instructors[0]?.id
+    const instructorId = instructors[0]?.id
   if (!instructorId) {
-    console.log('  SS2 Mathematics: no active trainer/admin found — skipping seed.')
+    console.log('  SS2 Mathematics: no active trainer found — skipping seed.')
     return
   }
+
 
   // Course (identified by its exact title — never duplicated).
   const { rows: existingCourse } = await query<{ id: string }>(
@@ -97,6 +98,30 @@ export async function ensureSS2MathematicsCourse() {
         ]
       )
     ).rows[0].id
+
+  // Ownership enforcement: if the course is currently owned by an admin (not a
+  // trainer) reassign it to the demo trainer so it shows up in the Trainer
+  // Portal and is editable through the owner-gated trainer routes — mirroring
+  // how src/db/seed.ts assigns instructor_id = trainer.id to its courses.
+  await query(
+    `UPDATE courses c SET instructor_id = $1
+      WHERE c.id = $2
+        AND c.instructor_id IN (SELECT id FROM users WHERE role = 'admin')`,
+    [instructorId, courseId]
+  )
+
+  // Enroll the demo students (kolade, amaka) so they can open the course
+  // immediately from the student dashboard — mirroring the demo-enrollment
+  // pattern in src/db/seed.ts (ON CONFLICT keeps this idempotent).
+  const { rows: demoStudents } = await query<{ id: string }>(
+    "SELECT id FROM users WHERE email IN ('kolade@gmail.com', 'amaka@gmail.com') AND role = 'student'"
+  )
+  for (const s of demoStudents) {
+    await query(
+      'INSERT INTO enrollments (user_id, course_id, progress) VALUES ($1, $2, 0) ON CONFLICT (user_id, course_id) DO NOTHING',
+      [s.id, courseId]
+    )
+  }
 
   // Modules + lessons (only while the course has no modules yet).
   const { rows: moduleCount } = await query<{ count: string }>(
