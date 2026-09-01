@@ -364,6 +364,14 @@ try {
       -- course-level prerequisite quiz.
       ALTER TABLE courses ADD COLUMN IF NOT EXISTS prerequisite_quiz_id UUID REFERENCES quizzes(id) ON DELETE SET NULL;
 
+      -- Align the courses table with the existing CourseRow type (types/index.ts):
+      -- these columns are read by courses.controller/dashboard.controller via
+      -- SELECT *, so fresh databases must have them. Additive only.
+      ALTER TABLE courses ADD COLUMN IF NOT EXISTS content TEXT NOT NULL DEFAULT '';
+      ALTER TABLE courses ADD COLUMN IF NOT EXISTS duration VARCHAR(50) NOT NULL DEFAULT '';
+      ALTER TABLE courses ADD COLUMN IF NOT EXISTS prerequisites TEXT[] NOT NULL DEFAULT '{}';
+      ALTER TABLE courses ADD COLUMN IF NOT EXISTS enroll_count INTEGER NOT NULL DEFAULT 0;
+
       -- Quiz Questions
       CREATE TABLE IF NOT EXISTS quiz_questions (
         id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),

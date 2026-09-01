@@ -2,6 +2,7 @@ import 'dotenv/config'
 import bcrypt from 'bcryptjs'
 import { query } from './pool'
 import { ensureCurriculumCatalog } from './curriculum'
+import { ensureSS2MathematicsCourse } from './ss2-mathematics'
 
 export async function seed() {
   console.log('Seeding database...')
@@ -211,6 +212,7 @@ export async function seed() {
 
     // ── Content recovery: modules + lessons + enrollments ───────────────────────
     await ensureCurriculumCatalog()
+    await ensureSS2MathematicsCourse()
     return
   }
 
@@ -1717,6 +1719,7 @@ If 250 were claimed as a term of 3, 8, 13…, solving 5n − 2 = 250 gives non-i
   console.log(`  Lesson notes: ${notesFilled} backfilled, ${notesCreated} lessons created.`)
 
   await ensureCurriculumCatalog()
+  await ensureSS2MathematicsCourse()
   console.log('Seed complete.')
   console.log(`  Admin:   emmanuel@numerycode.com      / password123`)
   console.log(`  Admin:   nwaforugochukwu21@gmail.com  / password123`)
