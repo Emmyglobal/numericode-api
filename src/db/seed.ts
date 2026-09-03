@@ -1718,8 +1718,67 @@ If 250 were claimed as a term of 3, 8, 13…, solving 5n − 2 = 250 gives non-i
   }
   console.log(`  Lesson notes: ${notesFilled} backfilled, ${notesCreated} lessons created.`)
 
+  // Import external course JSON files from the repository-level data/courses folder (if any).
+  // This makes it easy to drop content files at the repo root and have the API pick
+  // them up during seeding. The folder looked up is: <repo-root>/data/courses.
+  async function ensureExternalCourseFiles() {
+    const fs = await import('fs')
+    const path = await import('path')
+    try {
+      const externalDir = path.resolve(process.cwd(), '..', '..', 'data', 'courses')
+      if (!fs.existsSync(externalDir)) return
+      const files = fs.readdirSync(externalDir).filter(f => f.endsWith('.json'))
+      for (const f of files) {
+        const full = path.join(externalDir, f)
+        try {
+          const raw = fs.readFileSync(full, 'utf8')
+          const obj = JSON.parse(raw)
+          const title = obj.courseTitle || obj.title || obj.courseId || f
+          const { rows: found } = await query<{ id: string }>('SELECT id FROM courses WHERE title = $1 LIMIT 1', [title])
+          if (found.length > 0) continue
+          const lessonCount = Array.isArray(obj.lessons) ? obj.lessons.length : 0
+          // Use an active trainer if available (the seed creates demo trainer earlier)
+          const { rows: trainerRows } = await query<{ id: string }>("SELECT id FROM users WHERE role = 'trainer' AND status = 'active' ORDER BY created_at LIMIT 1")
+          const instructorId = trainerRows[0]?.id
+          // Insert a simple course record. More detailed module/lesson creation follows.
+          const { rows: inserted } = await query<{ id: string }>(
+            `INSERT INTO courses (title, description, subject, level, instructor_id, status, lesson_count, outcomes, duration, content)
+             VALUES ($1, $2, $3, $4, $5, 'published', $6, $7, $8, $9) RETURNING id`,
+            [
+              title,
+              obj.metadata?.notes || obj.description || '',
+              obj.subject || 'mathematics',
+              obj.metadata?.level || 'intermediate',
+              instructorId,
+              lessonCount,
+              obj.metadata?.outcomes || [],
+              obj.metadata?.duration || null,
+              JSON.stringify(obj),
+            ]
+          )
+          const courseId = inserted[0].id
+          // Create a single module to hold lessons for this imported course.
+          const { rows: mod } = await query<{ id: string }>('INSERT INTO modules (course_id, title, position) VALUES ($1, $2, 0) RETURNING id', [courseId, obj.term || 'Term Lessons'])
+          const moduleId = mod[0].id
+          if (Array.isArray(obj.lessons) && obj.lessons.length > 0) {
+            for (const [i, lesson] of obj.lessons.entries()) {
+              const titleL = lesson.title || (typeof lesson.week === 'number' ? `Week ${lesson.week}` : `Lesson ${i + 1}`)
+              const content = (lesson.body && lesson.body.explanation) ? lesson.body.explanation : JSON.stringify(lesson)
+              await query('INSERT INTO lessons (module_id, title, content, duration, position) VALUES ($1, $2, $3, $4, $5)', [moduleId, titleL, content, 35, i])
+            }
+          }
+          console.log(`  Imported external course from ${f}: ${title}`)
+        } catch (err) {
+          console.error('  Failed to import course file', f, err)
+        }
+      }
+    } catch (err) {
+      console.error('  Error scanning external courses folder', err)
+    }
+  }
   await ensureCurriculumCatalog()
   await ensureSS2MathematicsCourse()
+  await ensureExternalCourseFiles()
   console.log('Seed complete.')
   console.log(`  Admin:   emmanuel@numerycode.com      / password123`)
   console.log(`  Admin:   nwaforugochukwu21@gmail.com  / password123`)
