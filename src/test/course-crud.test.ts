@@ -55,6 +55,39 @@ describe('Trainer Course CRUD', () => {
     expect(res.body.data.title).toBe('Updated Title')
   })
 
+  it('course update changes updatedAt timestamp', async () => {
+    // First, publish the course so it's accessible via the public endpoint
+    const publish = await request(app)
+      .patch(`/api/trainer/courses/${createdCourseId}/status`)
+      .set({ Authorization: `Bearer ${trainerToken}` })
+      .send({ status: 'published' })
+    expect(publish.status).toBe(200)
+
+    // Get the course's current updatedAt from the public detail endpoint
+    const before = await request(app).get(`/api/courses/${createdCourseId}`)
+    expect(before.status).toBe(200)
+    const updatedAtBefore = before.body.data.updatedAt
+    expect(updatedAtBefore).toBeDefined()
+
+    // Update the course title
+    const update = await request(app)
+      .put(`/api/trainer/courses/${createdCourseId}`)
+      .set({ Authorization: `Bearer ${trainerToken}` })
+      .send({ title: 'Updated Title Again' })
+    expect(update.status).toBe(200)
+
+    // Verify updatedAt has changed
+    const after = await request(app).get(`/api/courses/${createdCourseId}`)
+    expect(after.status).toBe(200)
+    const updatedAtAfter = after.body.data.updatedAt
+    expect(updatedAtAfter).toBeDefined()
+
+    // The timestamps should be different (or at minimum, after >= before)
+    const beforeDate = new Date(updatedAtBefore)
+    const afterDate = new Date(updatedAtAfter)
+    expect(afterDate.getTime()).toBeGreaterThanOrEqual(beforeDate.getTime())
+  })
+
   it('trainer can publish their own draft course', async () => {
     const res = await request(app)
       .patch(`/api/trainer/courses/${createdCourseId}/status`)

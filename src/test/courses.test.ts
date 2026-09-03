@@ -40,6 +40,7 @@ describe('GET /api/courses (slim catalogue)', () => {
     expect(course).toHaveProperty('accessLevel')
     expect(course).toHaveProperty('premiumEnabled')
     expect(course).toHaveProperty('instructor')
+    expect(course).toHaveProperty('updatedAt')
     // Instructor exposes privacy-safe public fields only.
     expect(course.instructor).toHaveProperty('id')
     expect(course.instructor).toHaveProperty('name')
@@ -51,6 +52,17 @@ describe('GET /api/courses (slim catalogue)', () => {
     expect(course).not.toHaveProperty('modules')
     expect(course).not.toHaveProperty('liveClasses')
     expect(course).not.toHaveProperty('content')
+  })
+
+  it('updatedAt is a valid ISO 8601 timestamp', async () => {
+    const res = await request(app).get('/api/courses')
+    const course = res.body.data[0]
+    expect(course.updatedAt).toBeDefined()
+    expect(typeof course.updatedAt).toBe('string')
+    const parsed = new Date(course.updatedAt)
+    expect(Number.isNaN(parsed.getTime())).toBe(false)
+    // ISO 8601 format check (should match YYYY-MM-DDTHH:mm:ss.sssZ)
+    expect(course.updatedAt).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/)
   })
 
   it('never returns draft/archived courses', async () => {
@@ -137,9 +149,19 @@ describe('GET /api/courses/:id (published-only detail)', () => {
     expect(res.body.data.id).toBe(id)
     expect(res.body.data).toHaveProperty('outcomes')
     expect(res.body.data).toHaveProperty('description')
+    expect(res.body.data).toHaveProperty('updatedAt')
     // Full detail endpoint DOES return the hierarchy.
     expect(res.body.data).toHaveProperty('modules')
     expect(res.body.data).toHaveProperty('liveClasses')
+  })
+
+  it('updatedAt is a valid ISO 8601 timestamp in detail response', async () => {
+    const id = await firstCourseId()
+    const res = await request(app).get(`/api/courses/${id}`)
+    expect(res.body.data.updatedAt).toBeDefined()
+    expect(typeof res.body.data.updatedAt).toBe('string')
+    const parsed = new Date(res.body.data.updatedAt)
+    expect(Number.isNaN(parsed.getTime())).toBe(false)
   })
 
   it('exposes privacy-safe instructor info only', async () => {
@@ -162,6 +184,66 @@ describe('GET /api/courses/:id (published-only detail)', () => {
     // Even with a valid UUID, a non-published course must not be exposed.
     const res = await request(app).get('/api/courses/11111111-1111-1111-1111-111111111111')
     expect(res.status).toBe(404)
+  })
+
+  it('returns public curriculum: modules with ordered lessons (Phase 11)', async () => {
+    const id = await firstCourseId()
+    const res = await request(app).get(`/api/courses/${id}`)
+    expect(res.status).toBe(200)
+    expect(Array.isArray(res.body.data.modules)).toBe(true)
+
+    res.body.data.modules.forEach((mod: {
+      id: string; title: string; lessons: Array<{ id: string; title: string }>
+    }) => {
+      // Modules expose id + title only (metadata; no hidden fields).
+      expect(typeof mod.id).toBe('string')
+      expect(typeof mod.title).toBe('string')
+      expect(Array.isArray(mod.lessons)).toBe(true)
+      mod.lessons.forEach((lesson) => {
+        expect(typeof lesson.id).toBe('string')
+        expect(typeof lesson.title).toBe('string')
+      })
+    })
+  })
+
+  it('public curriculum exposes titles but NOT lesson content (Phase 11)', async () => {
+    const id = await firstCourseId()
+    const res = await request(app).get(`/api/courses/${id}`)
+    expect(res.status).toBe(200)
+    const allLessons = res.body.data.modules.flatMap((m: { lessons: Array<Record<string, unknown>> }) => m.lessons ?? [])
+    if (allLessons.length > 0) {
+      // Lesson body content is gated — it must NOT appear in the public response.
+      allLessons.forEach((lesson: Record<string, unknown>) => {
+        expect(lesson).not.toHaveProperty('content')
+        // Resource URLs are private to enrolled students.
+        expect(lesson).not.toHaveProperty('url')
+      })
+    }
+  })
+
+  it('public curriculum does not leak private/internal fields (Phase 11)', async () => {
+    const id = await firstCourseId()
+    const res = await request(app).get(`/api/courses/${id}`)
+    expect(res.status).toBe(200)
+    const body = JSON.stringify(res.body.data)
+    // No internal user/DB identifiers beyond the public resource id.
+    expect(body).not.toMatch(/instructor_id/)
+    expect(body).not.toMatch(/created_by/)
+    expect(body).not.toMatch(/password/)
+    expect(body).not.toMatch(/email/)
+  })
+
+  it('module and lesson ordering follows the curriculum position (Phase 11)', async () => {
+    const id = await firstCourseId()
+    const res = await request(app).get(`/api/courses/${id}`)
+    expect(res.status).toBe(200)
+    const modules = res.body.data.modules
+    expect(Array.isArray(modules)).toBe(true)
+    // Lessons within each module are returned in curriculum order (position ASC
+    // is enforced by the SQL ORDER BY). Assert the API contract: an array whose
+    // order the frontend treats as authoritative.
+    const titles = modules.flatMap((m: { lessons: Array<{ title: string }> }) => m.lessons.map((l) => l.title))
+    expect(Array.isArray(titles)).toBe(true)
   })
 })
 

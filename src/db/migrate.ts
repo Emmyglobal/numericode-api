@@ -644,6 +644,28 @@ try {
         UNIQUE(user_id, policy_type)
       );
       CREATE INDEX IF NOT EXISTS idx_user_policy_acceptances_user_id ON user_policy_acceptances(user_id);
+
+      -- Phase 10: Add updated_at to courses table for SEO lastmod support.
+      -- Uses TIMESTAMPTZ (UTC) consistent with existing created_at convention.
+      -- Existing rows default to NOW(); future updates maintain it via trigger.
+      ALTER TABLE courses ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
+      CREATE INDEX IF NOT EXISTS idx_courses_updated_at ON courses(updated_at);
+
+      -- Auto-maintain updated_at on every row UPDATE (idempotent).
+      -- Guarantees the timestamp is truthful without relying on application code.
+      CREATE OR REPLACE FUNCTION maintain_courses_updated_at()
+      RETURNS TRIGGER AS $$
+      BEGIN
+        NEW.updated_at = NOW();
+        RETURN NEW;
+      END;
+      $$ LANGUAGE plpgsql;
+
+      DROP TRIGGER IF EXISTS set_courses_updated_at ON courses;
+      CREATE TRIGGER set_courses_updated_at
+        BEFORE UPDATE ON courses
+        FOR EACH ROW
+        EXECUTE FUNCTION maintain_courses_updated_at();
     `);
 
     console.log('Migrations completed successfully!');

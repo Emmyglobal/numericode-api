@@ -23,7 +23,7 @@ export interface CourseRow {
   access_level: CourseAccessLevel; price_cents: number; currency: string; premium_enabled: boolean
   prerequisites: string[]; duration: string; enroll_count: number
   prerequisite_quiz_id: string | null
-  created_at: Date
+  created_at: Date; updated_at: Date
 }
 export interface ModuleRow    { id: string; course_id: string; title: string; position: number }
 export interface LessonRow    { id: string; module_id: string; title: string; content: string; duration: number; position: number }

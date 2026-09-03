@@ -22,7 +22,12 @@ export async function buildFullCourse(course: CourseRow, includeProtectedContent
         'SELECT * FROM resources WHERE lesson_id = $1', [lesson.id]
       )
       return {
-        id: lesson.id, title: lesson.title, content: lesson.content, duration: lesson.duration,
+        id: lesson.id, title: lesson.title, duration: lesson.duration,
+        // Lesson body content is gated content: public consumers (GET /courses/:id)
+        // receive curriculum metadata only (Phase 11). Full content is returned
+        // only to enrolled students via the protected dashboard endpoint
+        // (GET /dashboard/courses/:id, includeProtectedContent=true).
+        ...(includeProtectedContent ? { content: lesson.content } : {}),
         isCompleted: userId ? Boolean((await query<{ id: string }>('SELECT id FROM lesson_completions WHERE user_id = $1 AND lesson_id = $2', [userId, lesson.id])).rows[0]) : false,
         resources: includeProtectedContent ? resources.map(r => ({ id: r.id, title: r.title, type: r.type, url: r.url })) : [],
       }
@@ -64,7 +69,7 @@ export async function buildFullCourse(course: CourseRow, includeProtectedContent
     id: course.id, title: course.title, description: course.description, content: course.content,
     subject: course.subject, level: course.level, lessonCount: course.lesson_count,
     accessLevel: course.access_level, priceCents: course.price_cents, currency: course.currency, premiumEnabled: course.premium_enabled,
-    outcomes: course.outcomes, createdAt: course.created_at.toISOString(),
+    outcomes: course.outcomes, createdAt: course.created_at.toISOString(), updatedAt: course.updated_at.toISOString(),
     instructor: { id: instructor.id, name: instructor.name, bio: instructor.bio, avatarUrl: instructor.avatar_url ?? undefined, credentials: [] as string[] },
     modules: modulesWithLessons,
     liveClasses: liveClasses.map(lc => ({
@@ -150,13 +155,14 @@ export async function listCourses(req: Request, res: Response) {
       currency: string | null
       premium_enabled: boolean
       created_at: string
+      updated_at: string
       instructor_id: string
       instructor_name: string
       instructor_bio: string | null
       instructor_avatar: string | null
     }>(
       `SELECT c.id, c.title, c.description, c.subject, c.level, c.lesson_count, c.outcomes,
-              c.thumbnail_url, c.access_level, c.price_cents, c.currency, c.premium_enabled, c.created_at,
+              c.thumbnail_url, c.access_level, c.price_cents, c.currency, c.premium_enabled, c.created_at, c.updated_at,
               u.id AS instructor_id, u.name AS instructor_name, u.bio AS instructor_bio,
               u.avatar_url AS instructor_avatar
          FROM courses c
@@ -181,6 +187,7 @@ export async function listCourses(req: Request, res: Response) {
       currency: row.currency,
       premiumEnabled: row.premium_enabled,
       createdAt: row.created_at,
+      updatedAt: row.updated_at,
       instructor: {
         id: row.instructor_id,
         name: row.instructor_name,
