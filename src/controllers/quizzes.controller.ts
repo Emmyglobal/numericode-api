@@ -321,7 +321,8 @@ export async function submitQuizAttempt(req: Request, res: Response, next: NextF
           earnedPoints += Number(question.points)
         }
       } else if (question.question_type === 'true_false') {
-        if (userAnswer === question.correct_answer) {
+        // Normalise so "True"/"true"/" true " all match the stored answer.
+        if (String(userAnswer ?? '').toLowerCase().trim() === String(question.correct_answer ?? '').toLowerCase().trim()) {
           earnedPoints += Number(question.points)
         }
       } else if (question.question_type === 'fill_blank') {
@@ -334,17 +335,29 @@ export async function submitQuizAttempt(req: Request, res: Response, next: NextF
     
     const score = totalPoints > 0 ? (earnedPoints / totalPoints) * 100 : 0
     const passed = score >= quiz.passing_score
-    
-    // Update attempt
+
+    // Mark the open attempt complete; if the student never officially started an
+    // attempt (or re‑submits after a previous completion), record the graded
+    // attempt anyway so the score is never lost.
     const { rows: [attempt] } = await query<AttemptRow>(
       `UPDATE quiz_attempts SET completed_at = NOW(), score = $1, passed = $2, answers = $3
        WHERE quiz_id = $4 AND user_id = $5 AND completed_at IS NULL
        RETURNING *`,
       [score, passed, JSON.stringify(answers), quizId, userId]
     )
-    
+
+    let attemptId = attempt?.id
+    if (!attemptId) {
+      const { rows: [created] } = await query<AttemptRow>(
+        `INSERT INTO quiz_attempts (quiz_id, user_id, completed_at, score, passed, answers)
+         VALUES ($1, $2, NOW(), $3, $4, $5) RETURNING *`,
+        [quizId, userId, score, passed, JSON.stringify(answers)]
+      )
+      attemptId = created?.id
+    }
+
     return ok(res, {
-      attemptId: attempt.id,
+      attemptId,
       score: Number(score),
       passed,
       totalPoints: Number(totalPoints),
