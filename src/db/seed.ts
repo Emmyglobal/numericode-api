@@ -3,6 +3,9 @@ import bcrypt from 'bcryptjs'
 import { query } from './pool'
 import { ensureCurriculumCatalog } from './curriculum'
 import { ensureSS2MathematicsCourse } from './ss2-mathematics'
+import { ensureMachineLearningCourse } from './ml-course'
+import { ensurePythonCourse } from './python-course'
+import { ensureJavaScriptCourse } from './js-course'
 
 export async function seed() {
   console.log('Seeding database...')
@@ -206,13 +209,16 @@ export async function seed() {
         )
         console.log('  Recreated demo enrollments so students can access lesson boards & code editors.')
       } else {
-        console.log('  Demo enrollments already present -- skipping enrollment recovery.')
+                console.log('  Demo enrollments already present -- skipping enrollment recovery.')
       }
-        }
+    }
 
-    // ── Content recovery: modules + lessons + enrollments ───────────────────────
+        // ── Content recovery: modules + lessons + enrollments ───────────────────────
     await ensureCurriculumCatalog()
     await ensureSS2MathematicsCourse()
+        await ensureMachineLearningCourse()
+    await ensurePythonCourse()
+    await ensureJavaScriptCourse()
     return
   }
 
@@ -1776,8 +1782,11 @@ If 250 were claimed as a term of 3, 8, 13…, solving 5n − 2 = 250 gives non-i
       console.error('  Error scanning external courses folder', err)
     }
   }
-  await ensureCurriculumCatalog()
-  await ensureSS2MathematicsCourse()
+    await ensureCurriculumCatalog()
+    await ensureSS2MathematicsCourse()
+    await ensureMachineLearningCourse()
+  await ensurePythonCourse()
+  await ensureJavaScriptCourse()
   await ensureExternalCourseFiles()
   console.log('Seed complete.')
   console.log(`  Admin:   emmanuel@numerycode.com      / password123`)

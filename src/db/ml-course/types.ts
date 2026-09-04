@@ -6,6 +6,7 @@
 // submit endpoint supports.
 
 export interface MlQuizQuestionData {
+  id?: string
   questionText: string
   questionType: 'multiple_choice' | 'true_false' | 'fill_blank'
   /** For multiple choice: [{id, text, isCorrect}] */
