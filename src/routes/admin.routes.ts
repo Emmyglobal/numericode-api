@@ -2,10 +2,11 @@ import { Router } from 'express'
 import { requireAuth, requireRole } from '../middleware/auth'
 import {
   getStats, getUsers, getTrainers, updateUser,
-  getCourses, createCourse, updateCourseStatus,
+  getCourses, createCourse, updateCourseStatus, deleteCourse,
   getAnnouncements, createAnnouncement, getCourseRequests, reviewCourseRequest,
   updateCourseAccess, getCourseCompletionSettings, updateCourseCompletionSettings,
   reassignStudent, reassignCourse, suspendUser, deleteUser,
+  getPayments, approvePayment,
 } from '../controllers/admin.controller'
 
 const router = Router()
@@ -20,6 +21,7 @@ router.delete('/users/:id',         ...guard, deleteUser)
 router.get('/courses',              ...guard, getCourses)
 router.post('/courses',             ...guard, createCourse)
 router.patch('/courses/:id/status', ...guard, updateCourseStatus)
+router.delete('/courses/:id',        ...guard, deleteCourse)
 router.patch('/courses/:id/access', ...guard, updateCourseAccess)
 router.get('/courses/:id/completion-settings', ...guard, getCourseCompletionSettings)
 router.put('/courses/:id/completion-settings', ...guard, updateCourseCompletionSettings)
@@ -29,5 +31,7 @@ router.get('/announcements',        ...guard, getAnnouncements)
 router.post('/announcements',       ...guard, createAnnouncement)
 router.post('/reassign-student',    ...guard, reassignStudent)
 router.post('/reassign-course',     ...guard, reassignCourse)
+router.get('/payments',             ...guard, getPayments)
+router.post('/payments/:id/approve', ...guard, approvePayment)
 
 export default router

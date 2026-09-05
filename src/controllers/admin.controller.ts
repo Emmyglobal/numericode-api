@@ -409,6 +409,152 @@ export async function createAnnouncement(req: Request, res: Response, next: Next
   } catch (err) { next(err) }
 }
 
+export async function deleteCourse(req: Request, res: Response, next: NextFunction) {
+  try {
+    const courseId = String(req.params.id)
+
+    // Check if course exists
+    const { rows: courseRows } = await query<CourseRow>('SELECT * FROM courses WHERE id = $1', [courseId])
+    if (!courseRows[0]) return notFound(res, 'Course not found')
+
+    const course = courseRows[0]
+
+    // Delete course - cascade will handle related data (enrollments, lessons, modules, etc.)
+    await query('DELETE FROM courses WHERE id = $1', [courseId])
+
+    return ok(res, {
+      message: 'Course and all associated data deleted successfully',
+      deletedCourseId: courseId,
+      deletedCourseTitle: course.title,
+      deletedAt: new Date().toISOString(),
+    })
+  } catch (err) { next(err) }
+}
+
+export async function getPayments(_req: Request, res: Response, next: NextFunction) {
+  try {
+    const { rows } = await query<{
+      id: string
+      user_id: string
+      course_id: string
+      reference: string
+      email: string
+      amount_subunits: number
+      currency: string
+      status: 'pending' | 'verified' | 'failed' | 'abandoned' | 'refunded' | 'disputed'
+      failure_reason: string | null
+      initialized_at: Date
+      paid_at: Date | null
+      verified_at: Date | null
+      user_name: string
+      user_email: string
+      course_title: string
+      course_access_level: string
+      course_price_cents: number
+      course_currency: string
+      is_enrolled: boolean
+    }>(`
+      SELECT
+        p.id, p.user_id, p.course_id, p.reference, p.email,
+        p.amount_subunits, p.currency, p.status, p.failure_reason,
+        p.initialized_at, p.paid_at, p.verified_at,
+        u.name AS user_name, u.email AS user_email,
+        c.title AS course_title, c.access_level AS course_access_level,
+        c.price_cents AS course_price_cents, c.currency AS course_currency,
+        EXISTS(SELECT 1 FROM enrollments e WHERE e.user_id = p.user_id AND e.course_id = p.course_id) AS is_enrolled
+      FROM payments p
+      JOIN users u ON u.id = p.user_id
+      JOIN courses c ON c.id = p.course_id
+      ORDER BY p.initialized_at DESC
+    `)
+    return ok(res, rows.map(p => ({
+      id: p.id,
+      userId: p.user_id,
+      courseId: p.course_id,
+      reference: p.reference,
+      email: p.email,
+      amountSubunits: p.amount_subunits,
+      currency: p.currency,
+      status: p.status,
+      failureReason: p.failure_reason,
+      initializedAt: p.initialized_at.toISOString(),
+      paidAt: p.paid_at?.toISOString() ?? null,
+      verifiedAt: p.verified_at?.toISOString() ?? null,
+      user: { id: p.user_id, name: p.user_name, email: p.user_email },
+      course: { id: p.course_id, title: p.course_title, accessLevel: p.course_access_level, priceCents: p.course_price_cents, currency: p.course_currency },
+      isEnrolled: p.is_enrolled,
+    })))
+  } catch (err) { next(err) }
+}
+
+export async function approvePayment(req: Request, res: Response, next: NextFunction) {
+  try {
+    const paymentId = String(req.params.id)
+
+    // Get the payment record
+    const { rows: paymentRows } = await query<{
+      id: string
+      user_id: string
+      course_id: string
+      reference: string
+      amount_subunits: number
+      currency: string
+      status: 'pending' | 'verified' | 'failed' | 'abandoned' | 'refunded' | 'disputed'
+      provider_reference: string | null
+      paid_at: Date | null
+    }>('SELECT * FROM payments WHERE id = $1', [paymentId])
+    
+    if (!paymentRows[0]) return notFound(res, 'Payment not found')
+
+    const payment = paymentRows[0]
+
+    // Can only approve pending payments
+    if (payment.status !== 'pending') {
+      return fail(res, `Cannot approve payment with status '${payment.status}'`, 400)
+    }
+
+    // Update payment status to verified
+    await query(
+      `UPDATE payments SET status = 'verified', verified_at = NOW(), updated_at = NOW() WHERE id = $1`,
+      [paymentId]
+    )
+
+    // Grant enrollment (idempotent - won't fail if already enrolled)
+    await query(
+      'INSERT INTO enrollments (user_id, course_id) VALUES ($1, $2) ON CONFLICT (user_id, course_id) DO NOTHING',
+      [payment.user_id, payment.course_id]
+    )
+
+    // Notify the user about successful enrollment
+    const { rows: userRows } = await query<{ name: string; email: string }>(
+      'SELECT name, email FROM users WHERE id = $1',
+      [payment.user_id]
+    )
+    const { rows: courseRows } = await query<{ title: string }>(
+      'SELECT title FROM courses WHERE id = $1',
+      [payment.course_id]
+    )
+
+    if (userRows[0] && courseRows[0]) {
+      await notifyUser(
+        payment.user_id,
+        'Payment Approved — Enrollment Confirmed',
+        `Your payment for "${courseRows[0].title}" has been approved. You now have full access to the course.`,
+        'general'
+      ).catch(() => {})
+    }
+
+    return ok(res, {
+      message: 'Payment approved and enrollment granted',
+      paymentId: payment.id,
+      userId: payment.user_id,
+      courseId: payment.course_id,
+      courseTitle: courseRows[0]?.title,
+      approvedAt: new Date().toISOString(),
+    })
+  } catch (err) { next(err) }
+}
+
 export async function suspendUser(req: Request, res: Response, next: NextFunction) {
   try {
     const { reason } = req.body as { reason?: string }

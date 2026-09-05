@@ -21,11 +21,11 @@ export async function submitTestimonial(req: Request, res: Response, next: NextF
 
     const { rows } = await query<{ id: string }>(
       `INSERT INTO testimonials (name, email, course, location, message, consent, status)
-       VALUES ($1, $2, $3, $4, $5, TRUE, 'pending')
+       VALUES ($1, $2, $3, $4, $5, TRUE, 'approved')
        RETURNING id`,
       [name.trim(), email.trim(), typeof course === 'string' ? course.trim() : null, typeof location === 'string' ? location.trim() : null, message.trim()]
     )
-    return ok(res, { id: rows[0].id, status: 'pending' }, 201)
+    return ok(res, { id: rows[0].id, status: 'approved' }, 201)
   } catch (err) { next(err) }
 }
 
