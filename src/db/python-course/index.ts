@@ -5,6 +5,7 @@ import { module03 } from './module-03'
 import { module04 } from './module-04'
 import { module05 } from './module-05'
 import { module06 } from './module-06'
+import { prerequisiteModule } from './prerequisite'
 import type { ModuleData, LessonData } from './types'
 
 // ─── Python Course — Beginner to Intermediate ───────────────────────────────
@@ -15,6 +16,7 @@ import type { ModuleData, LessonData } from './types'
 export const PYTHON_COURSE_TITLE = 'Python Programming — Beginner to Intermediate'
 
 const PYTHON_MODULES: ModuleData[] = [
+  prerequisiteModule,
   module01,
   module02,
   module03,

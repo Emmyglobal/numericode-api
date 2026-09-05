@@ -114,7 +114,15 @@ describe('Trainer Course CRUD', () => {
   it('a second trainer cannot edit the first trainer\'s course', async () => {
     // Register + approve a second trainer
     const email = `second-trainer-${Date.now()}@example.com`
-    await request(app).post('/api/auth/register').send({ name: 'Second Trainer', email, password: 'password123', role: 'trainer' })
+    await request(app).post('/api/auth/register').send({
+      name: 'Second Trainer',
+      email,
+      password: 'password123',
+      role: 'trainer',
+      termsAccepted: true,
+      privacyPolicyAcknowledged: true,
+      acceptableUseAccepted: true,
+    })
     const usersRes = await request(app).get('/api/admin/users').set({ Authorization: `Bearer ${adminToken}` })
     const newUser = usersRes.body.data.find((u: { email: string }) => u.email === email)
     await request(app).patch(`/api/admin/users/${newUser.id}`).set({ Authorization: `Bearer ${adminToken}` }).send({ status: 'active' })

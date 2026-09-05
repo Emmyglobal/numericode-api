@@ -6,6 +6,9 @@ import { ensureSS2MathematicsCourse } from './ss2-mathematics'
 import { ensureMachineLearningCourse } from './ml-course'
 import { ensurePythonCourse } from './python-course'
 import { ensureJavaScriptCourse } from './js-course'
+import { ensureJss2FirstTermCourse } from './jss2-first-term'
+import { ensureJss2SecondTermCourse } from './jss2-second-term'
+import { ensureJss2ThirdTermCourse } from './jss2-third-term'
 
 export async function seed() {
   console.log('Seeding database...')
@@ -216,9 +219,12 @@ export async function seed() {
         // ── Content recovery: modules + lessons + enrollments ───────────────────────
     await ensureCurriculumCatalog()
     await ensureSS2MathematicsCourse()
-        await ensureMachineLearningCourse()
+    await ensureMachineLearningCourse()
     await ensurePythonCourse()
     await ensureJavaScriptCourse()
+        await ensureJss2FirstTermCourse()
+    await ensureJss2SecondTermCourse()
+    await ensureJss2ThirdTermCourse()
     return
   }
 
@@ -1785,9 +1791,12 @@ If 250 were claimed as a term of 3, 8, 13…, solving 5n − 2 = 250 gives non-i
     await ensureCurriculumCatalog()
     await ensureSS2MathematicsCourse()
     await ensureMachineLearningCourse()
-  await ensurePythonCourse()
-  await ensureJavaScriptCourse()
-  await ensureExternalCourseFiles()
+    await ensurePythonCourse()
+    await ensureJavaScriptCourse()
+        await ensureJss2FirstTermCourse()
+    await ensureJss2SecondTermCourse()
+    await ensureJss2ThirdTermCourse()
+    await ensureExternalCourseFiles()
   console.log('Seed complete.')
   console.log(`  Admin:   emmanuel@numerycode.com      / password123`)
   console.log(`  Admin:   nwaforugochukwu21@gmail.com  / password123`)

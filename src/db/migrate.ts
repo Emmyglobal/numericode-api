@@ -190,6 +190,35 @@ try {
         created_at         TIMESTAMPTZ NOT NULL DEFAULT NOW()
       );
 
+      -- Payments (per-course premium purchases, Phase 16).
+      -- Amounts are stored in the provider's subunit representation (Paystack:
+      -- kobo for NGN, cents for USD/ZAR/KES — always price_cents * 1 i.e. already subunits).
+      -- No card data, CVV, or provider credentials are ever stored here.
+      CREATE TABLE IF NOT EXISTS payments (
+        id                 UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        user_id            UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        course_id          UUID NOT NULL REFERENCES courses(id) ON DELETE CASCADE,
+        provider           VARCHAR(50) NOT NULL DEFAULT 'paystack',
+        reference          VARCHAR(255) NOT NULL UNIQUE,
+        provider_reference VARCHAR(255) UNIQUE,
+        email              VARCHAR(255) NOT NULL,
+        amount_subunits    INTEGER NOT NULL CHECK (amount_subunits >= 0),
+        currency           VARCHAR(3)  NOT NULL,
+        status             VARCHAR(20) NOT NULL DEFAULT 'pending'
+                           CHECK (status IN ('pending','verified','failed','abandoned','refunded','disputed')),
+        failure_reason     VARCHAR(255),
+        initialized_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        paid_at            TIMESTAMPTZ,
+        verified_at        TIMESTAMPTZ,
+        updated_at         TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        metadata           JSONB NOT NULL DEFAULT '{}'::jsonb
+      );
+      CREATE INDEX IF NOT EXISTS idx_payments_user_id   ON payments(user_id);
+      CREATE INDEX IF NOT EXISTS idx_payments_course_id ON payments(course_id);
+      -- Idempotency guard: at most ONE verified payment per (user, course).
+      CREATE UNIQUE INDEX IF NOT EXISTS uq_payments_verified_user_course
+        ON payments(user_id, course_id) WHERE status = 'verified';
+
       -- JSON scene documents keep lesson boards portable and ready for real-time collaboration.
       CREATE TABLE IF NOT EXISTS lesson_boards (
         id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),

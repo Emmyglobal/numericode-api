@@ -84,9 +84,10 @@ export async function login(req: Request, res: Response, next: NextFunction) {
   try {
     const { email, password } = req.body as { email?: string; password?: string }
     if (!email || !password) return fail(res, 'Email and password required', 400)
-    if (!EMAIL_REGEX.test(email)) return fail(res, 'Enter a valid email address', 400)
+    const normalizedEmail = email.trim().toLowerCase()
+    if (!EMAIL_REGEX.test(normalizedEmail)) return fail(res, 'Enter a valid email address', 400)
 
-    const { rows } = await query<UserRow>('SELECT * FROM users WHERE email = $1', [email])
+    const { rows } = await query<UserRow>('SELECT * FROM users WHERE email = $1', [normalizedEmail])
     const user = rows[0]
     if (!user) return unauthorized(res)
 
@@ -115,9 +116,10 @@ export async function register(req: Request, res: Response, next: NextFunction) 
       preferredTeacherId?: string; subjects?: string[]
     }
     if (!name || !email || !password) return fail(res, 'Name, email, and password are required', 400)
+    const normalizedEmail = email.trim().toLowerCase()
 
     // ── Email validation (compulsory) ──────────────────────────
-    const emailValidation = validateEmail(email)
+    const emailValidation = validateEmail(normalizedEmail)
     if (!emailValidation.valid) {
       return fail(res, emailValidation.reason || 'Invalid email address', 400)
     }
@@ -152,7 +154,7 @@ export async function register(req: Request, res: Response, next: NextFunction) 
     // This ensures proper verification and prevents spam accounts
     const initialStatus = 'pending'
 
-    const { rows: existing } = await query('SELECT id FROM users WHERE email = $1', [email])
+    const { rows: existing } = await query('SELECT id FROM users WHERE email = $1', [normalizedEmail])
     if (existing.length > 0) return fail(res, 'An account with this email already exists', 409)
 
     const passwordHash = await bcrypt.hash(password, 10)
@@ -163,7 +165,7 @@ export async function register(req: Request, res: Response, next: NextFunction) 
       const { rows } = await client.query<UserRow>(
         `INSERT INTO users (name, email, password_hash, role, status)
          VALUES ($1, $2, $3, $4, $5) RETURNING *`,
-        [name, email, passwordHash, finalRole, initialStatus]
+        [name, normalizedEmail, passwordHash, finalRole, initialStatus]
       )
       user = rows[0]
 
@@ -231,9 +233,11 @@ export async function register(req: Request, res: Response, next: NextFunction) 
     // Notify admins about new user registration
     await notifyRole(
       'admin',
-      'New user awaiting approval',
-      `${user.name} (${user.email}) registered as a ${finalRole} and needs approval before they can access the platform.`,
-      'announcement',
+      finalRole === 'trainer' ? 'New trainer awaiting approval' : 'New user awaiting approval',
+      finalRole === 'trainer'
+        ? `${user.name} (${user.email}) registered as a trainer and is awaiting admin approval.`
+        : `${user.name} (${user.email}) registered as a ${finalRole} and needs approval before they can access the platform.`,
+      finalRole === 'trainer' ? 'trainer_approval' : 'announcement',
       '/admin/users'
     ).catch(() => {})
 

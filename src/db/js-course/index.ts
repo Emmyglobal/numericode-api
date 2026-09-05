@@ -5,6 +5,7 @@ import { module03 } from './module-03'
 import { module04 } from './module-04'
 import { module05 } from './module-05'
 import { module06 } from './module-06'
+import { prerequisiteModule } from './prerequisite'
 import type { ModuleData, LessonData } from './types'
 
 // ─── JavaScript Course — Beginner to Intermediate ───────────────────────────
@@ -14,7 +15,7 @@ import type { ModuleData, LessonData } from './types'
 
 export const JS_COURSE_TITLE = 'JavaScript Programming — Beginner to Intermediate'
 
-const JS_MODULES: ModuleData[] = [module01, module02, module03, module04, module05, module06]
+const JS_MODULES: ModuleData[] = [prerequisiteModule, module01, module02, module03, module04, module05, module06]
 const JS_LESSON_COUNT = JS_MODULES.reduce((t, m) => t + m.lessons.length, 0)
 
 const JS_OUTCOMES = [

@@ -1,4 +1,5 @@
 import { query } from '../pool'
+import { prerequisiteModule } from './prerequisite'
 import { module01 } from './module-01'
 import { module02 } from './module-02'
 import { module03 } from './module-03'
@@ -18,6 +19,7 @@ import type { MlModuleData, MlLessonData } from './types'
 export const ML_COURSE_TITLE = "Machine Learning — Beginner to Intermediate"
 
 const ML_MODULES: MlModuleData[] = [
+  prerequisiteModule,
   module01,
   module02,
   module03,

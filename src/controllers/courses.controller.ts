@@ -4,44 +4,76 @@ import { ok, notFound, fail, forbidden } from '../utils/response'
 import type { CourseRow, ModuleRow, LessonRow, ResourceRow, LiveClassRow } from '../types'
 
 export async function buildFullCourse(course: CourseRow, includeProtectedContent = false, userId?: string) {
+  // Instructor (privacy-safe fields only)
   const { rows: instructorRows } = await query<{ id: string; name: string; bio: string; avatar_url: string | null }>(
     'SELECT id, name, bio, avatar_url FROM users WHERE id = $1', [course.instructor_id]
   )
   const instructor = instructorRows[0]
 
+  // Modules (ordered)
   const { rows: modules } = await query<ModuleRow>(
     'SELECT * FROM modules WHERE course_id = $1 ORDER BY position', [course.id]
   )
+  const moduleIds = modules.map(m => m.id)
 
-  const modulesWithLessons = await Promise.all(modules.map(async (mod) => {
-    const { rows: lessons } = await query<LessonRow>(
-      'SELECT * FROM lessons WHERE module_id = $1 ORDER BY position', [mod.id]
+  // Fetch all lessons for the modules in one query and preserve ordering by module->position.
+  const lessonsByModule: Record<string, LessonRow[]> = {}
+  let lessons: LessonRow[] = []
+  if (moduleIds.length > 0) {
+    const { rows } = await query<LessonRow>(
+      'SELECT * FROM lessons WHERE module_id = ANY($1::uuid[]) ORDER BY module_id, position', [moduleIds]
     )
-    const lessonsWithResources = await Promise.all(lessons.map(async (lesson) => {
-      const { rows: resources } = await query<ResourceRow>(
-        'SELECT * FROM resources WHERE lesson_id = $1', [lesson.id]
-      )
-      return {
-        id: lesson.id, title: lesson.title, duration: lesson.duration,
-        // Lesson body content is gated content: public consumers (GET /courses/:id)
-        // receive curriculum metadata only (Phase 11). Full content is returned
-        // only to enrolled students via the protected dashboard endpoint
-        // (GET /dashboard/courses/:id, includeProtectedContent=true).
-        ...(includeProtectedContent ? { content: lesson.content } : {}),
-        isCompleted: userId ? Boolean((await query<{ id: string }>('SELECT id FROM lesson_completions WHERE user_id = $1 AND lesson_id = $2', [userId, lesson.id])).rows[0]) : false,
-        resources: includeProtectedContent ? resources.map(r => ({ id: r.id, title: r.title, type: r.type, url: r.url })) : [],
-      }
+    lessons = rows
+    for (const l of lessons) {
+      lessonsByModule[l.module_id] = lessonsByModule[l.module_id] ?? []
+      lessonsByModule[l.module_id].push(l)
+    }
+  }
+
+  // Collect lesson IDs for resources / completions
+  const lessonIds = lessons.map(l => l.id)
+
+  // Fetch resources in one query (ordered by title for deterministic output)
+  const resourcesByLesson: Record<string, ResourceRow[]> = {}
+  if (lessonIds.length > 0 && includeProtectedContent) {
+    const { rows: resourceRows } = await query<ResourceRow>(
+      'SELECT * FROM resources WHERE lesson_id = ANY($1::uuid[]) ORDER BY title', [lessonIds]
+    )
+    for (const r of resourceRows) {
+      resourcesByLesson[r.lesson_id] = resourcesByLesson[r.lesson_id] ?? []
+      resourcesByLesson[r.lesson_id].push(r)
+    }
+  }
+
+  // Fetch lesson completions for the user in one query
+  const completedLessonSet = new Set<string>()
+  if (lessonIds.length > 0 && userId) {
+    const { rows: completionRows } = await query<{ lesson_id: string }>(
+      'SELECT lesson_id FROM lesson_completions WHERE user_id = $1 AND lesson_id = ANY($2::uuid[])', [userId, lessonIds]
+    )
+    for (const c of completionRows) completedLessonSet.add(c.lesson_id)
+  }
+
+  // Assemble modules -> lessons -> resources
+  const modulesWithLessons = modules.map(mod => ({
+    id: mod.id,
+    title: mod.title,
+    lessons: (lessonsByModule[mod.id] ?? []).map(lesson => ({
+      id: lesson.id,
+      title: lesson.title,
+      duration: lesson.duration,
+      ...(includeProtectedContent ? { content: lesson.content } : {}),
+      isCompleted: userId ? completedLessonSet.has(lesson.id) : false,
+      resources: includeProtectedContent ? (resourcesByLesson[lesson.id] ?? []).map(r => ({ id: r.id, title: r.title, type: r.type, url: r.url })) : [],
     }))
-    return { id: mod.id, title: mod.title, lessons: lessonsWithResources }
   }))
 
+  // Live classes (unchanged)
   const { rows: liveClasses } = await query<LiveClassRow>(
     'SELECT * FROM live_classes WHERE course_id = $1 ORDER BY date', [course.id]
   )
 
-  // ── Prerequisite quiz (course-level gating) ────────────────────────────────
-  // A course may declare a single course-level quiz (module_id/lesson_id NULL)
-  // that an enrolled student must PASS before the course content unlocks.
+  // ── Prerequisite quiz (course-level gating) — keep behavior unchanged
   let prerequisiteQuiz: { id: string; title: string; description: string; passingScore: number } | null = null
   let isPrerequisiteQuizPassed = false
   if (course.prerequisite_quiz_id && userId) {
@@ -56,7 +88,6 @@ export async function buildFullCourse(course: CourseRow, includeProtectedContent
         description: pqRows[0].description,
         passingScore: Number(pqRows[0].passing_score),
       }
-      // A passing attempt (passed = TRUE) counts as unlocked.
       const { rows: passRows } = await query<{ passed: boolean }>(
         'SELECT passed FROM quiz_attempts WHERE quiz_id = $1 AND user_id = $2 AND passed = TRUE LIMIT 1',
         [course.prerequisite_quiz_id, userId]
@@ -308,10 +339,16 @@ export async function requestCourse(req: Request, res: Response, next: NextFunct
     if (enrolled[0]) return fail(res, 'You are already enrolled in this course', 409)
     if (course.access_level === 'premium') {
       if (!course.premium_enabled) return fail(res, 'Premium access is temporarily unavailable for this course', 403)
-      const { rows: subscriptions } = await query<{ id: string }>(
-        `SELECT id FROM subscriptions WHERE user_id = $1 AND status = 'active' AND ends_at > NOW() LIMIT 1`, [req.user!.userId]
+      // Premium access requires an active site-wide subscription OR a verified
+      // payment for THIS course (Phase 16). Both checks are server-side.
+      const { rows: access } = await query<{ id: string }>(
+        `SELECT 1 AS id FROM subscriptions WHERE user_id = $1 AND status = 'active' AND ends_at > NOW()
+         UNION ALL
+         SELECT 1 FROM payments WHERE user_id = $1 AND course_id = $2 AND status = 'verified'
+         LIMIT 1`,
+        [req.user!.userId, req.params.id]
       )
-      if (!subscriptions[0]) return fail(res, 'An active Premium subscription is required to enrol in this course', 403)
+      if (!access[0]) return fail(res, 'An active Premium subscription or verified payment is required to enrol in this course', 403)
     }
     await query(`INSERT INTO enrollments (user_id, course_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`, [req.user!.userId, req.params.id])
     return ok(res, { status: 'enrolled', courseId: req.params.id }, 201)
@@ -371,11 +408,22 @@ export async function enrollInCourses(req: Request, res: Response, next: NextFun
       const hasPremium = premiumCourses.some(c => !c.premium_enabled)
       if (hasPremium) return fail(res, 'Premium access is temporarily unavailable for one of the selected courses', 403)
 
-      const { rows: subscriptions } = await query<{ id: string }>(
-        `SELECT id FROM subscriptions WHERE user_id = $1 AND status = 'active' AND ends_at > NOW() LIMIT 1`,
-        [userId]
+      // A verified payment per course OR an active site-wide subscription unlocks
+      // premium enrolment (Phase 16). Both checks are server-side.
+      const premiumIds = premiumCourses.map(c => c.id)
+      const { rows: paidCourses } = await query<{ course_id: string }>(
+        `SELECT course_id FROM payments WHERE user_id = $1 AND status = 'verified' AND course_id = ANY($2::uuid[])`,
+        [userId, premiumIds]
       )
-      if (!subscriptions[0]) return fail(res, 'An active Premium subscription is required to enrol in premium courses', 403)
+      const paidSet = new Set(paidCourses.map(r => r.course_id))
+      const unpaidPremium = premiumIds.filter(id => !paidSet.has(id))
+      if (unpaidPremium.length > 0) {
+        const { rows: subscriptions } = await query<{ id: string }>(
+          `SELECT id FROM subscriptions WHERE user_id = $1 AND status = 'active' AND ends_at > NOW() LIMIT 1`,
+          [userId]
+        )
+        if (!subscriptions[0]) return fail(res, 'An active Premium subscription or verified payment is required to enrol in premium courses', 403)
+      }
     }
 
     // Check which courses the student is already enrolled in

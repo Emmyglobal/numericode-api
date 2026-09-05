@@ -1,4 +1,5 @@
 import express from 'express'
+import type { Request } from 'express'
 import cors from 'cors'
 import helmet from 'helmet'
 import morgan from 'morgan'
@@ -13,6 +14,7 @@ import notificationsRoutes from './routes/notifications.routes'
 import contactRoutes      from './routes/contact.routes'
 import aiRoutes           from './routes/ai.routes'
 import subscriptionsRoutes from './routes/subscriptions.routes'
+import paymentsRoutes    from './routes/payments.routes'
 import boardsRoutes       from './routes/boards.routes'
 import codeEditorRoutes   from './routes/code-editor.routes'
 import assessmentsRoutes  from './routes/assessments.routes'
@@ -44,7 +46,14 @@ app.use(
     credentials: true,
   })
 )
-  app.use(express.json({ limit: '2mb' }))
+  // The verify callback keeps a copy of the RAW body on every request so the
+  // Paystack webhook (HMAC-SHA512 over the raw bytes) can be authenticated.
+  app.use(express.json({
+    limit: '2mb',
+    verify: (req, _res, buf) => {
+      (req as Request & { rawBody?: Buffer }).rawBody = Buffer.from(buf)
+    },
+  }))
   app.use('/uploads', express.static(path.resolve(process.cwd(), 'uploads')))
   if (process.env.NODE_ENV !== 'test') {
     app.use(morgan(process.env.NODE_ENV === 'production' ? 'combined' : 'dev'))
@@ -71,6 +80,7 @@ app.get('/health', (_req, res) => {
   app.use('/api',         contactRoutes)
   app.use('/api/ai',      aiRoutes)
   app.use('/api/subscriptions', subscriptionsRoutes)
+  app.use('/api/payments', paymentsRoutes)
   app.use('/api/boards', boardsRoutes)
   app.use('/api/code-editor', codeEditorRoutes)
   app.use('/api', assessmentsRoutes)

@@ -19,6 +19,23 @@ interface AttemptRow {
   completed_at: Date | null; score: number | null; passed: boolean | null; answers: unknown
 }
 
+// Validate multiple-choice options: enforce at most one correct option and basic shape
+function validateSingleChoiceOptions(
+  options: unknown,
+  correctAnswer?: string
+): { ok: true; normalized: Array<Record<string, unknown>> | null } | { ok: false; message: string } {
+  if (!options) return { ok: true, normalized: null }
+  if (!Array.isArray(options)) return { ok: false, message: 'Options must be an array' }
+  const opts = options as Array<Record<string, unknown>>
+  const corrects = opts.filter(o => o && o.isCorrect === true)
+  if (corrects.length > 1) return { ok: false, message: 'Multiple choice questions must have at most one correct option' }
+  if (corrects.length === 0 && correctAnswer) {
+    const found = opts.find(o => o && o.id === correctAnswer)
+    if (!found) return { ok: false, message: 'correctAnswer does not match any option id' }
+  }
+  return { ok: true, normalized: opts }
+}
+
 // ─── Quiz CRUD ───────────────────────────────────────────────────────────────
 
 export async function listQuizzes(req: Request, res: Response, next: NextFunction) {
@@ -118,6 +135,14 @@ export async function createQuiz(req: Request, res: Response, next: NextFunction
       // Insert questions if provided
       if (questions && questions.length > 0) {
         for (const q of questions) {
+          if (q.questionType === 'multiple_choice') {
+            const v = validateSingleChoiceOptions(q.options, q.correctAnswer)
+            if (!v.ok) {
+              await client.query('ROLLBACK')
+              return fail(res, v.message, 400)
+            }
+          }
+
           await client.query(
             `INSERT INTO quiz_questions (quiz_id, question_text, question_type, options, correct_answer, points, position)
              VALUES ($1, $2, $3, $4, $5, $6, $7)`,
@@ -189,6 +214,11 @@ export async function addQuestion(req: Request, res: Response, next: NextFunctio
       questionText: string; questionType: string; options?: unknown; correctAnswer?: string; points: number; position: number
     }
     
+    if (questionType === 'multiple_choice') {
+      const v = validateSingleChoiceOptions(options, correctAnswer)
+      if (!v.ok) return fail(res, v.message, 400)
+    }
+
     const { rows: [question] } = await query(
       `INSERT INTO quiz_questions (quiz_id, question_text, question_type, options, correct_answer, points, position)
        VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *`,
@@ -208,7 +238,23 @@ export async function updateQuestion(req: Request, res: Response, next: NextFunc
     const { questionText, questionType, options, correctAnswer, points, position } = req.body as {
       questionText?: string; questionType?: string; options?: unknown; correctAnswer?: string; points?: number; position?: number
     }
-    
+
+    // Fetch existing question to decide whether validation is needed and to provide defaults
+    const { rows: [existing] } = await query('SELECT question_type, options, correct_answer FROM quiz_questions WHERE id = $1 AND quiz_id = $2', [req.params.questionId, req.params.quizId])
+    if (!existing) return notFound(res, 'Question not found')
+
+    const finalType = questionType ?? existing.question_type
+    const existingOptions = existing.options ? existing.options : null
+    const optionsToValidate = options !== undefined ? options : existingOptions
+    const answerToValidate = correctAnswer !== undefined
+      ? String(correctAnswer)
+      : (existing.correct_answer as string | null | undefined) ?? undefined
+
+    if (finalType === 'multiple_choice') {
+      const v = validateSingleChoiceOptions(optionsToValidate, answerToValidate)
+      if (!v.ok) return fail(res, v.message, 400)
+    }
+
     const { rows: [question] } = await query(
       `UPDATE quiz_questions SET
         question_text = COALESCE($1, question_text), question_type = COALESCE($2, question_type),
@@ -217,9 +263,7 @@ export async function updateQuestion(req: Request, res: Response, next: NextFunc
        WHERE id = $7 AND quiz_id = $8 RETURNING *`,
       [questionText, questionType, options ? JSON.stringify(options) : undefined, correctAnswer, points, position, req.params.questionId, req.params.quizId]
     )
-    
-    if (!question) return notFound(res, 'Question not found')
-    
+
     return ok(res, {
       id: question.id, quizId: question.quiz_id, questionText: question.question_text,
       questionType: question.question_type, options: question.options, correctAnswer: question.correct_answer,
@@ -313,11 +357,11 @@ export async function submitQuizAttempt(req: Request, res: Response, next: NextF
       const userAnswer = answers[question.id]
       
       if (question.question_type === 'multiple_choice') {
-        const options = question.options as Array<{ id: string; isCorrect: boolean }> | null
-        const correctOptions = options?.filter(o => o.isCorrect) || []
-        const userOptions = Array.isArray(userAnswer) ? userAnswer : []
-        if (correctOptions.length === userOptions.length && 
-            correctOptions.every(co => userOptions.some(uo => uo === co.id))) {
+        const options = question.options as Array<{ id: string; isCorrect?: boolean }> | null
+        const correctFromOptions = options?.find(o => o && o.isCorrect === true)
+        const correctId = question.correct_answer ?? correctFromOptions?.id ?? null
+        const userOption = Array.isArray(userAnswer) ? userAnswer[0] : userAnswer
+        if (correctId != null && userOption != null && String(userOption) === String(correctId)) {
           earnedPoints += Number(question.points)
         }
       } else if (question.question_type === 'true_false') {

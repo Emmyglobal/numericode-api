@@ -4,13 +4,19 @@ import { createApp } from '../app'
 
 const app = createApp()
 
+const validPolicyAcceptance = {
+  termsAccepted: true,
+  privacyPolicyAcknowledged: true,
+  acceptableUseAccepted: true,
+}
+
 describe('Trainer Approval Lifecycle', () => {
   it('a newly registered trainer is pending, cannot log in, admin approves, then they can log in', async () => {
     const email = `pending-trainer-${Date.now()}@example.com`
 
     // 1. Register as trainer
     const registerRes = await request(app).post('/api/auth/register').send({
-      name: 'Pending Trainer', email, password: 'password123', role: 'trainer',
+      name: 'Pending Trainer', email, password: 'password123', role: 'trainer', ...validPolicyAcceptance,
     })
     expect(registerRes.status).toBe(201)
     expect(registerRes.body.data.pendingApproval).toBe(true)
@@ -45,7 +51,9 @@ describe('Trainer Approval Lifecycle', () => {
 
   it('admin can suspend an active trainer, blocking further login', async () => {
     const email = `suspend-test-${Date.now()}@example.com`
-    await request(app).post('/api/auth/register').send({ name: 'To Suspend', email, password: 'password123', role: 'trainer' })
+    await request(app).post('/api/auth/register').send({
+      name: 'To Suspend', email, password: 'password123', role: 'trainer', ...validPolicyAcceptance,
+    })
 
     const adminLogin = await request(app).post('/api/auth/login').send({ email: 'emmanuel@numerycode.com', password: 'password123' })
     const adminToken = adminLogin.body.data.token

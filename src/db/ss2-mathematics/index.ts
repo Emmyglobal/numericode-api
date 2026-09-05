@@ -11,7 +11,9 @@ import { module09 } from './module-09'
 import { module10 } from './module-10'
 import { module11 } from './module-11'
 import { module12 } from './module-12'
-import type { Ss2ModuleData } from './types'
+import { prerequisiteModule } from './prerequisite'
+import { LESSON_EXTRAS } from './lesson-extras'
+import type { Ss2ModuleData, Ss2QuizData, Ss2AssignmentData } from './types'
 
 // ─── SS2 Mathematics — First Term ────────────────────────────────────────────
 // A complete, student-ready 12-week course seeded through the standard
@@ -26,6 +28,7 @@ import type { Ss2ModuleData } from './types'
 export const SS2_COURSE_TITLE = 'SS2 Mathematics — First Term'
 
 const SS2_MODULES: Ss2ModuleData[] = [
+  prerequisiteModule,
   module01, module02, module03, module04, module05, module06,
   module07, module08, module09, module10, module11, module12,
 ]
@@ -136,14 +139,21 @@ export async function ensureSS2MathematicsCourse() {
       [courseId, module.title, modulePosition]
     )
     for (const [lessonPosition, lesson] of module.lessons.entries()) {
+      // Merge the per-lesson practical exercise into the body when present.
+      const extras = LESSON_EXTRAS[lesson.title]
+      const content = extras ? `${lesson.content}\n\n${extras.exercise}` : lesson.content
       const { rows: insertedLessons } = await query<{ id: string }>(
         'INSERT INTO lessons (module_id, title, content, duration, position) VALUES ($1, $2, $3, $4, $5) RETURNING id',
-        [insertedModules[0].id, lesson.title, lesson.content, lesson.duration, lessonPosition]
+        [insertedModules[0].id, lesson.title, content, lesson.duration, lessonPosition]
       )
       await query(
         "INSERT INTO resources (lesson_id, title, type, url) VALUES ($1, 'Further practice (Khan Academy Mathematics)', 'link', 'https://www.khanacademy.org/math')",
         [insertedLessons[0].id]
       )
+      if (extras) {
+        await ensureSs2LessonQuiz(insertedLessons[0].id, courseId, extras.quiz, instructorId)
+        await ensureSs2LessonAssignment(insertedLessons[0].id, courseId, extras.assignment)
+      }
     }
   }
   console.log(`  Seeded SS2 Mathematics — First Term (${SS2_MODULES.length} modules, ${SS2_LESSON_COUNT} lessons).`)
@@ -191,5 +201,71 @@ async function ensureSS2ExaminationQuiz(courseId: string, instructorId: string) 
     [quizzes[0].id]
   )
   console.log('  Seeded SS2 Mathematics — First Term Examination quiz (12 questions).')
+}
+// Per-lesson quiz (located by lesson_id + title so re-seeding never duplicates).
+async function ensureSs2LessonQuiz(
+  lessonId: string,
+  courseId: string,
+  quiz: Ss2QuizData,
+  instructorId: string
+) {
+  const { rows: existingQuiz } = await query<{ id: string }>(
+    'SELECT id FROM quizzes WHERE lesson_id = $1 AND title = $2 LIMIT 1',
+    [lessonId, quiz.title]
+  )
+  if (existingQuiz[0]) return
+
+  const { rows: quizzes } = await query<{ id: string }>(
+    `INSERT INTO quizzes (course_id, lesson_id, title, description, time_limit, passing_score, max_attempts, shuffle_questions, show_results, created_by)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, false, true, $8) RETURNING id`,
+    [courseId, lessonId, quiz.title, quiz.description, quiz.timeLimit, quiz.passingScore, quiz.maxAttempts, instructorId]
+  )
+  const quizId = quizzes[0].id
+
+  let position = 0
+  for (const q of quiz.questions) {
+    await query(
+      `INSERT INTO quiz_questions (quiz_id, question_text, question_type, options, correct_answer, points, position)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+      [
+        quizId,
+        q.questionText,
+        q.questionType,
+        q.options ? JSON.stringify(q.options) : null,
+        q.correctAnswer,
+        q.points ?? 1,
+        position++,
+      ]
+    )
+  }
+}
+
+// Per-lesson assignment (located by lesson_id + title so re-seeding never duplicates).
+async function ensureSs2LessonAssignment(
+  lessonId: string,
+  courseId: string,
+  assignment: Ss2AssignmentData
+) {
+  const { rows: existing } = await query<{ id: string }>(
+    'SELECT id FROM assignments WHERE lesson_id = $1 AND title = $2 LIMIT 1',
+    [lessonId, assignment.title]
+  )
+  if (existing[0]) return
+
+  await query(
+    `INSERT INTO assignments (course_id, lesson_id, title, description, due_date, total_marks, passing_score, assignment_type, questions)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+    [
+      courseId,
+      lessonId,
+      assignment.title,
+      assignment.description,
+      assignment.dueDate,
+      assignment.totalMarks,
+      assignment.passingScore,
+      assignment.assignmentType,
+      JSON.stringify(assignment.questions),
+    ]
+  )
 }
 // __END__

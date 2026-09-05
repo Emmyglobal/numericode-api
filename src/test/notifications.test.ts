@@ -29,8 +29,13 @@ describe('Notifications', () => {
     const beforeCount = before.body.data.unreadCount
 
     await request(app).post('/api/auth/register').send({
-      name: 'Notify Test Trainer', email: `notify-trainer-${Date.now()}@example.com`,
-      password: 'password123', role: 'trainer',
+      name: 'Notify Test Trainer',
+      email: `notify-trainer-${Date.now()}@example.com`,
+      password: 'password123',
+      role: 'trainer',
+      termsAccepted: true,
+      privacyPolicyAcknowledged: true,
+      acceptableUseAccepted: true,
     })
 
     const after = await request(app).get('/api/notifications').set(auth())

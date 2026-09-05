@@ -87,12 +87,14 @@ export async function updateUser(req: Request, res: Response, next: NextFunction
     const before = beforeRows[0]
 
     const { rows } = await query<UserRow>(
-      `UPDATE users SET status = COALESCE($1, status), role = COALESCE($2, role) WHERE id = $3 RETURNING *`,
+      `UPDATE users SET status = COALESCE($1, status), role = COALESCE($2, role), account_activated = CASE WHEN $1 = 'active' THEN TRUE ELSE account_activated END WHERE id = $3 RETURNING *`,
       [status, role, req.params.id]
     )
     const u = rows[0]
 
-    // When a user transitions from pending → active, generate activation token and send email
+    // When a user transitions from pending → active, generate activation token and send email.
+    // We also mark the account active immediately so the approved user can sign in without
+    // being trapped behind a stale activation flag on the same approval event.
     if (status === 'active' && before.status === 'pending') {
       // Generate a secure activation token (expires in 7 days)
       const activationToken = crypto.randomBytes(32).toString('hex')
