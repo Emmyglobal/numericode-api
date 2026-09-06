@@ -31,7 +31,10 @@ export async function getResources(req: Request, res: Response, next: NextFuncti
       params.push(userId)
     } else if (role === 'student') {
       where = ` JOIN enrollments e ON e.course_id = c.id AND e.user_id = $1
-         WHERE c.access_level = 'free' OR (c.premium_enabled AND EXISTS (SELECT 1 FROM subscriptions s WHERE s.user_id = $1 AND s.status = 'active' AND s.ends_at > NOW()))`
+         WHERE c.access_level = 'free' OR (c.premium_enabled AND (
+           EXISTS (SELECT 1 FROM subscriptions s WHERE s.user_id = $1 AND s.status = 'active' AND s.ends_at > NOW())
+           OR EXISTS (SELECT 1 FROM payments p WHERE p.user_id = $1 AND p.course_id = c.id AND p.status = 'verified')
+         ))`
       params.push(userId)
     }
 

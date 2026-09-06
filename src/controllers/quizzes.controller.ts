@@ -400,6 +400,16 @@ export async function submitQuizAttempt(req: Request, res: Response, next: NextF
       attemptId = created?.id
     }
 
+    // Recompute composite progress (lessons + assignments + quizzes) when a quiz is
+    // completed so the user's enrollment progress reflects engagement with quizzes.
+    try {
+      const { recomputeAndUpdateEnrollmentProgress } = await import('../utils/progress')
+      await recomputeAndUpdateEnrollmentProgress(userId, quiz.course_id)
+    } catch (e) {
+      // Non-fatal: progress update failure should not block quiz submission response
+      console.error('progress recompute failed after quiz submission', e)
+    }
+
     return ok(res, {
       attemptId,
       score: Number(score),

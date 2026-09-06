@@ -248,6 +248,54 @@ describe('payments: initialization and verification', () => {
     expect(rows.length).toBe(0)
   })
 
+  it('abandoned payment that later succeeds → verified + enrolled (webhook recovery)', async () => {
+    const { course, res } = await makeCourseAndPayment()
+    const reference = res.body.data.reference
+    // Simulate the callback page polling BEFORE checkout completion: Paystack
+    // reports 'abandoned', flipping the row from pending → abandoned.
+    await query(`UPDATE payments SET status = 'abandoned', failure_reason = 'Checkout abandoned' WHERE reference = $1`, [reference])
+    const payload = JSON.stringify({ event: 'charge.success', data: { reference, status: 'success', amount: 50000, currency: 'NGN', id: 'hook-recovery', paid_at: '2026-08-17T10:00:00.000Z' } })
+    const hook = await request(app)
+      .post('/api/payments/webhook/paystack')
+      .set('Content-Type', 'application/json')
+      .set({ 'x-paystack-signature': signWebhook(payload) })
+      .send(payload)
+    expect(hook.status).toBe(200)
+    const { rows: pay } = await query<{ status: string }>('SELECT status FROM payments WHERE reference = $1', [reference])
+    expect(pay[0].status).toBe('verified')
+    const { rows: enr } = await query('SELECT 1 FROM enrollments WHERE user_id = $1 AND course_id = $2', [studentId, course.id])
+    expect(enr.length).toBe(1)
+  })
+
+  it('status endpoint reconciles an abandoned payment that later succeeded', async () => {
+    const { course, res } = await makeCourseAndPayment()
+    const reference = res.body.data.reference
+    await query(`UPDATE payments SET status = 'abandoned', failure_reason = 'Checkout abandoned' WHERE reference = $1`, [reference])
+    mockVerify.mockResolvedValueOnce({
+      status: 'success', reference, amountSubunits: course.price_cents,
+      currency: 'NGN', providerTransactionId: '4099260599', paidAt: '2026-08-17T10:00:00.000Z', rawStatus: 'success',
+    })
+    const status = await request(app).get(`/api/payments/${reference}`).set(auth())
+    expect(status.status).toBe(200)
+    expect(status.body.data.status).toBe('verified')
+    expect(status.body.data.enrollmentGranted).toBe(true)
+  })
+
+  it('status endpoint keeps a truly abandoned payment non-verified', async () => {
+    const { course, res } = await makeCourseAndPayment()
+    const reference = res.body.data.reference
+    await query(`UPDATE payments SET status = 'abandoned', failure_reason = 'Checkout abandoned' WHERE reference = $1`, [reference])
+    mockVerify.mockResolvedValueOnce({
+      status: 'abandoned', reference, amountSubunits: 0,
+      currency: '', providerTransactionId: null, paidAt: null, rawStatus: 'abandoned',
+    })
+    const status = await request(app).get(`/api/payments/${reference}`).set(auth())
+    expect(status.body.data.status).toBe('abandoned')
+    expect(status.body.data.enrollmentGranted).toBe(false)
+    const { rows: enr } = await query('SELECT 1 FROM enrollments WHERE user_id = $1 AND course_id = $2', [studentId, course.id])
+    expect(enr.length).toBe(0)
+  })
+
   it('404 — status for a wrong/unknown reference', async () => {
     const res = await request(app).get('/api/payments/NCP-doesnotexist').set(auth())
     expect(res.status).toBe(404)
@@ -268,8 +316,9 @@ describe('payments: initialization and verification', () => {
 
 describe('payments: webhooks (signature + idempotency)', () => {
   let hookTxId = 4100000000
-  const chargeSuccess = (reference: string, amount = 50000, currency = 'NGN', status = 'success') =>
-    JSON.stringify({ event: 'charge.success', data: { reference, status, amount, currency, id: String(hookTxId++), paid_at: '2026-08-17T10:00:00.000Z' } })
+  function chargeSuccess(reference: string, amount = 50000, currency = 'NGN', status = 'success') {
+    return JSON.stringify({ event: 'charge.success', data: { reference, status, amount, currency, id: String(hookTxId++), paid_at: '2026-08-17T10:00:00.000Z' } })
+  }
 
   const deliverWebhook = (payload: string, signature?: string) =>
     request(app)

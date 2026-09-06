@@ -3,7 +3,7 @@ import { requireAuth, requireRole } from '../middleware/auth'
 import {
   getStats, getTrainerCourses, getTrainerStudents,
   getTrainerSessions, getTrainerAssignments, createTrainerAssignment,
-  createTrainerCourse, updateTrainerCourse, updateTrainerCourseStatus,
+  createTrainerCourse, updateTrainerCourse, updateTrainerCourseStatus, deleteTrainerCourse,
   getTrainerProfile, updateTrainerProfile,
   getTrainerLessons, createTrainerAnnouncement,
 } from '../controllers/trainer.controller'
@@ -21,6 +21,7 @@ router.get('/courses',            ...guard, getTrainerCourses)
 router.post('/courses',           ...guard, createTrainerCourse)
 router.put('/courses/:id',        ...guard, updateTrainerCourse)
 router.patch('/courses/:id/status', ...guard, updateTrainerCourseStatus)
+router.delete('/courses/:id',     ...guard, deleteTrainerCourse)
 router.get('/students',           ...guard, getTrainerStudents)
 router.get('/sessions',           ...guard, getTrainerSessions)
 router.post('/sessions',          ...guard, createTrainerSession)

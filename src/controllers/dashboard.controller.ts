@@ -105,8 +105,16 @@ export async function getMyCourse(req: Request, res: Response, next: NextFunctio
     if (!rows[0]) return notFound(res, 'Enrolled course not found')
     const course = rows[0]
     if (course.access_level === 'premium') {
-      const { rows: subscriptions } = await query<{ id: string }>(`SELECT id FROM subscriptions WHERE user_id = $1 AND status = 'active' AND ends_at > NOW()`, [req.user!.userId])
-      if (!course.premium_enabled || !subscriptions[0]) return forbidden(res, 'An active Premium subscription is required to access this course')
+      // Premium content unlocks with an active site-wide subscription OR a
+      // verified payment for THIS course (Phase 16). Both checks are server-side.
+      const { rows: access } = await query<{ id: string }>(
+        `SELECT 1 AS id FROM subscriptions WHERE user_id = $1 AND status = 'active' AND ends_at > NOW()
+         UNION ALL
+         SELECT 1 FROM payments WHERE user_id = $1 AND course_id = $2 AND status = 'verified'
+         LIMIT 1`,
+        [req.user!.userId, course.id]
+      )
+      if (!course.premium_enabled || !access[0]) return forbidden(res, 'Premium access for this course is not active')
     }
     const fullCourse = await buildFullCourse(course, true, req.user!.userId)
     const { rows: enrollmentRows } = await query<EnrollmentRow>('SELECT * FROM enrollments WHERE user_id = $1 AND course_id = $2', [req.user!.userId, course.id])
@@ -122,7 +130,10 @@ export async function getAssignments(req: Request, res: Response, next: NextFunc
        JOIN courses c ON c.id = a.course_id
        JOIN enrollments e ON e.course_id = c.id AND e.user_id = $1
        LEFT JOIN submissions s ON s.assignment_id = a.id AND s.user_id = $1
-       WHERE c.access_level = 'free' OR (c.premium_enabled AND EXISTS (SELECT 1 FROM subscriptions sub WHERE sub.user_id = $1 AND sub.status = 'active' AND sub.ends_at > NOW()))`,
+       WHERE c.access_level = 'free' OR (c.premium_enabled AND (
+         EXISTS (SELECT 1 FROM subscriptions sub WHERE sub.user_id = $1 AND sub.status = 'active' AND sub.ends_at > NOW())
+         OR EXISTS (SELECT 1 FROM payments p WHERE p.user_id = $1 AND p.course_id = c.id AND p.status = 'verified')
+       ))`,
       [req.user!.userId]
     )
     return ok(res, rows.map(a => ({
@@ -175,7 +186,10 @@ export async function getLiveClasses(req: Request, res: Response, next: NextFunc
        FROM live_classes lc
        JOIN courses c ON c.id = lc.course_id
        JOIN enrollments e ON e.course_id = c.id AND e.user_id = $1
-       WHERE c.access_level = 'free' OR (c.premium_enabled AND EXISTS (SELECT 1 FROM subscriptions s WHERE s.user_id = $1 AND s.status = 'active' AND s.ends_at > NOW()))`,
+       WHERE c.access_level = 'free' OR (c.premium_enabled AND (
+         EXISTS (SELECT 1 FROM subscriptions s WHERE s.user_id = $1 AND s.status = 'active' AND s.ends_at > NOW())
+         OR EXISTS (SELECT 1 FROM payments p WHERE p.user_id = $1 AND p.course_id = c.id AND p.status = 'verified')
+       ))`,
       [req.user!.userId]
     )
     return ok(res, rows.map(c => ({
@@ -192,6 +206,46 @@ export async function getProfile(req: Request, res: Response, next: NextFunction
     if (!rows[0]) return notFound(res, 'User not found')
     const u = rows[0]
     return ok(res, { id: u.id, name: u.name, email: u.email, bio: u.bio, avatarUrl: u.avatar_url ?? undefined, createdAt: u.created_at.toISOString() })
+  } catch (err) { next(err) }
+}
+
+
+export async function completeLesson(req: Request, res: Response, next: NextFunction) {
+  try {
+    const userId = req.user!.userId
+    const lessonId = req.params.lessonId
+
+    // Verify the lesson exists and user is enrolled in the course
+    const { rows: lessonRows } = await query<{ course_id: string }>(
+      `SELECT l.course_id FROM lessons l
+       JOIN modules m ON m.id = l.module_id
+       JOIN enrollments e ON e.course_id = m.course_id
+       WHERE l.id = $1 AND e.user_id = $2`,
+      [lessonId, userId]
+    )
+
+    if (!lessonRows[0]) {
+      return res.status(404).json({ success: false, message: 'Lesson not found or you are not enrolled in this course' })
+    }
+
+    // Insert lesson completion (ignore if already exists)
+    await query(
+      `INSERT INTO lesson_completions (user_id, lesson_id) VALUES ($1, $2)
+       ON CONFLICT (user_id, lesson_id) DO NOTHING`,
+      [userId, lessonId]
+    )
+
+    // Calculate and update course progress
+    const courseId = lessonRows[0].course_id
+    try {
+      const { recomputeAndUpdateEnrollmentProgress } = await import('../utils/progress')
+      await recomputeAndUpdateEnrollmentProgress(userId, courseId)
+    } catch (e) {
+      // Non-fatal: progress update failure should not block the completion response
+      console.error('progress recompute failed after lesson completion', e)
+    }
+
+    return ok(res, { lessonId, completed: true })
   } catch (err) { next(err) }
 }
 

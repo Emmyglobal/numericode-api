@@ -306,3 +306,28 @@ export async function createTrainerAnnouncement(req: Request, res: Response, nex
     }, 201)
   } catch (err) { next(err) }
 }
+
+export async function deleteTrainerCourse(req: Request, res: Response, next: NextFunction) {
+  try {
+    const trainerId = req.user!.userId
+    const courseId = String(req.params.id)
+
+    // Verify the course belongs to this trainer
+    const { rows: courseRows } = await query<CourseRow>('SELECT * FROM courses WHERE id = $1 AND instructor_id = $2', [courseId, trainerId])
+    if (!courseRows[0]) {
+      return forbidden(res, 'You can only delete your own courses')
+    }
+
+    const course = courseRows[0]
+
+    // Delete course - cascade will handle related data (enrollments, lessons, modules, etc.)
+    await query('DELETE FROM courses WHERE id = $1', [courseId])
+
+    return ok(res, {
+      message: 'Course and all associated data deleted successfully',
+      deletedCourseId: courseId,
+      deletedCourseTitle: course.title,
+      deletedAt: new Date().toISOString(),
+    })
+  } catch (err) { next(err) }
+}

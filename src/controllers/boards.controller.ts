@@ -16,8 +16,9 @@ async function studentCanAccess(userId: string, lessonId: string) {
   const { rows } = await query<{ id: string }>(
     `SELECT e.id FROM enrollments e JOIN modules m ON m.course_id = e.course_id JOIN lessons l ON l.module_id = m.id
      JOIN courses c ON c.id = e.course_id WHERE e.user_id = $1 AND l.id = $2
-     AND (c.access_level = 'free' OR (c.premium_enabled AND EXISTS (
-       SELECT 1 FROM subscriptions s WHERE s.user_id = $1 AND s.status = 'active' AND s.ends_at > NOW()
+     AND (c.access_level = 'free' OR (c.premium_enabled AND (
+       EXISTS (SELECT 1 FROM subscriptions s WHERE s.user_id = $1 AND s.status = 'active' AND s.ends_at > NOW())
+       OR EXISTS (SELECT 1 FROM payments p WHERE p.user_id = $1 AND p.course_id = c.id AND p.status = 'verified')
      )))`, [userId, lessonId]
   )
   return Boolean(rows[0])

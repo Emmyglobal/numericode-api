@@ -11,8 +11,8 @@ export async function getStats(_req: Request, res: Response, next: NextFunction)
     const [{ rows: totalUsers }, { rows: students }, { rows: trainers },
            { rows: courses }, { rows: activeCourses }, { rows: sessions },
            { rows: enrolments }, { rows: pendingTrainers },
-           { rows: thisMonthUsers }, { rows: lastMonthUsers },
-           { rows: thisMonthEnrolments }, { rows: lastMonthEnrolments }] = await Promise.all([
+           { rows: thisMonthUsersRows }, { rows: lastMonthUsersRows },
+            { rows: thisMonthEnrolmentsRows }, { rows: lastMonthEnrolmentsRows }] = await Promise.all([
       query<{ count: string }>(`SELECT COUNT(*) FROM users`),
       query<{ count: string }>(`SELECT COUNT(*) FROM users WHERE role = 'student'`),
       query<{ count: string }>(`SELECT COUNT(*) FROM users WHERE role = 'trainer'`),
@@ -31,14 +31,36 @@ export async function getStats(_req: Request, res: Response, next: NextFunction)
       query<{ count: string }>(`SELECT COUNT(*) FROM enrollments WHERE enrolled_at >= date_trunc('month', NOW() - INTERVAL '1 month') AND enrolled_at < date_trunc('month', NOW())`),
     ])
 
-    // Calculate growth rate based on user signups compared to last month
-    const thisMonthCount = Number(thisMonthUsers[0].count) + Number(thisMonthEnrolments[0].count)
-    const lastMonthCount = Number(lastMonthUsers[0].count) + Number(lastMonthEnrolments[0].count)
+    // Calculate growth rates
+    const thisMonthUsers = Number(thisMonthUsersRows[0].count)
+    const lastMonthUsers = Number(lastMonthUsersRows[0].count)
+    const thisMonthEnrollments = Number(thisMonthEnrolmentsRows[0].count)
+    const lastMonthEnrollments = Number(lastMonthEnrolmentsRows[0].count)
+    
+    // Overall platform growth (combination of user signups and enrollments)
+    const thisMonthCount = thisMonthUsers + thisMonthEnrollments
+    const lastMonthCount = lastMonthUsers + lastMonthEnrollments
     let platformGrowth = 0
     if (lastMonthCount > 0) {
       platformGrowth = Math.round(((thisMonthCount - lastMonthCount) / lastMonthCount) * 100)
     } else if (thisMonthCount > 0) {
       platformGrowth = 100
+    }
+    
+    // User-specific growth
+    let userGrowth = 0
+    if (lastMonthUsers > 0) {
+      userGrowth = Math.round(((thisMonthUsers - lastMonthUsers) / lastMonthUsers) * 100)
+    } else if (thisMonthUsers > 0) {
+      userGrowth = 100
+    }
+    
+    // Enrollment-specific growth
+    let enrollmentGrowth = 0
+    if (lastMonthEnrollments > 0) {
+      enrollmentGrowth = Math.round(((thisMonthEnrollments - lastMonthEnrollments) / lastMonthEnrollments) * 100)
+    } else if (thisMonthEnrollments > 0) {
+      enrollmentGrowth = 100
     }
 
     return ok(res, {
@@ -51,6 +73,8 @@ export async function getStats(_req: Request, res: Response, next: NextFunction)
       totalEnrolments:   Number(enrolments[0].count),
       pendingTrainers:   Number(pendingTrainers[0].count),
       platformGrowth,
+      userGrowth,
+      enrollmentGrowth,
     })
   } catch (err) { next(err) }
 }

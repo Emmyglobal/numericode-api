@@ -69,13 +69,18 @@ async function applyVerifiedPayment(
   if (verified.amountSubunits !== payment.amount_subunits || verified.currency !== payment.currency) {
     const reason = `Amount/currency mismatch: expected ${payment.amount_subunits} ${payment.currency}, got ${verified.amountSubunits} ${verified.currency}`
     await query(
-      `UPDATE payments SET status = 'failed', failure_reason = $2, updated_at = NOW() WHERE id = $1 AND status = 'pending'`,
+      `UPDATE payments SET status = 'failed', failure_reason = $2, updated_at = NOW() WHERE id = $1 AND status IN ('pending','abandoned')`,
       [payment.id, reason]
     )
     return { ...payment, status: 'failed', failure_reason: reason }
   }
 
-  // Atomic idempotent transition: only a 'pending' row may become 'verified'.
+  // Atomic idempotent transition: only a non-terminal ('pending'/'abandoned')
+  // row may become 'verified'. The provider is authoritative: a checkout the
+  // caller previously flagged 'abandoned' may in fact have been completed (the
+  // status poll ran before the customer finished paying) — a trusted
+  // charge.success must then still grant access. The partial unique index
+  // uq_payments_verified_user_course keeps duplicate verification impossible.
   const { rows } = await query<PaymentRow>(
     `UPDATE payments
         SET status = 'verified',
@@ -83,7 +88,7 @@ async function applyVerifiedPayment(
             paid_at = COALESCE($3::timestamptz, paid_at),
             verified_at = NOW(),
             updated_at = NOW()
-      WHERE id = $1 AND status = 'pending'
+      WHERE id = $1 AND status IN ('pending','abandoned')
       RETURNING *`,
     [payment.id, verified.providerReference, verified.paidAt]
   )
@@ -231,7 +236,10 @@ export async function getPaymentStatus(req: Request, res: Response, next: NextFu
     }
 
     let current = payment
-    if (payment.status === 'pending') {
+    // Re-verify non-terminal payments against the provider. A payment that was
+    // flagged 'abandoned' by an early status poll may have actually been
+    // completed later — the trusted server-side verify can still flip it.
+    if (payment.status === 'pending' || payment.status === 'abandoned') {
       current = await reconcilePendingPayment(payment)
     }
     if (current.status === 'verified') {

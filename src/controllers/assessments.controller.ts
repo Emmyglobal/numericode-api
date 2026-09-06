@@ -59,8 +59,8 @@ export async function gradeSubmission(req: Request, res: Response, next: NextFun
       score?: number; feedback?: string; returnForCorrection?: boolean; publish?: boolean
     }
     if (typeof score !== 'number' || score < 0) return fail(res, 'score must be a non-negative number', 400)
-    const { rows: existing } = await query<{ id: string; total_marks: number; passing_score: number }>(
-      `SELECT s.id, a.total_marks, a.passing_score FROM submissions s JOIN assignments a ON a.id = s.assignment_id
+    const { rows: existing } = await query<{ id: string; user_id: string; total_marks: number; passing_score: number; course_id: string }>(
+      `SELECT s.id, s.user_id, a.total_marks, a.passing_score, a.course_id FROM submissions s JOIN assignments a ON a.id = s.assignment_id
        JOIN courses c ON c.id = a.course_id WHERE s.id = $1 AND c.instructor_id = $2`, [req.params.submissionId, req.user!.userId]
     )
     if (!existing[0]) return notFound(res, 'Submission not found')
@@ -71,6 +71,17 @@ export async function gradeSubmission(req: Request, res: Response, next: NextFun
        graded_at = CASE WHEN $5 THEN NOW() ELSE NULL END WHERE id = $6 RETURNING *`,
       [score, feedback, returnForCorrection, status, publish && !returnForCorrection, req.params.submissionId]
     )
+
+    // If the submission is graded (pass/fail), recompute the enrollment progress
+    try {
+      if (status === 'passed' || status === 'failed') {
+        const { recomputeAndUpdateEnrollmentProgress } = await import('../utils/progress')
+        await recomputeAndUpdateEnrollmentProgress(existing[0].user_id, existing[0].course_id)
+      }
+    } catch (e) {
+      console.error('progress recompute failed after grading submission', e)
+    }
+
     return ok(res, { id: rows[0].id, status: rows[0].status, score: Number(rows[0].score), feedback: rows[0].feedback, returnedForCorrection: rows[0].returned_for_correction })
   } catch (error) { next(error) }
 }
