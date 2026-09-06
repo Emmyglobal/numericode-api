@@ -174,6 +174,70 @@ If any step fails, the workflow fails — configure branch protection rules in G
 
 ---
 
+## Paystack Payments Configuration (required for premium course checkout)
+
+The backend owns the Paystack secret key — it must **never** be placed in the
+frontend, Vite variables, or version control.
+
+### 1. Backend environment variable
+
+| Variable | Value |
+|---|---|
+| `PAYSTACK_SECRET_KEY` | `sk_test_…` for sandbox, `sk_live_…` for production |
+
+Set it in the platform dashboard (Render/Railway → service → Environment).
+Never print, log, or commit the value.
+
+### 2. Webhook URL (one-time dashboard step — REQUIRED)
+
+Paystack delivers `charge.success` (and refund/dispute) events only to the
+webhook URL registered in the Paystack dashboard. Without it, purchases still
+verify (the callback page polls `GET /api/payments/:reference`, which
+reconciles against the provider server-side), but confirmation is delayed
+until the student returns to the app.
+
+Register it once in **Paystack Dashboard → Settings → API Keys & Webhooks →
+Webhook URL**:
+
+```
+https://<your-api-host>/api/payments/webhook/paystack
+```
+
+e.g. `https://numericode-api.onrender.com/api/payments/webhook/paystack`
+
+The endpoint validates the `x-paystack-signature` HMAC-SHA512 header over the
+raw request body and rejects anything else with `401`. Duplicate/replayed
+events are idempotent (safe to deliver repeatedly).
+
+Verify after registering:
+
+```bash
+# Invalid signature must be rejected:
+curl -s -X POST https://<your-api-host>/api/payments/webhook/paystack \
+  -H 'Content-Type: application/json' \
+  -H 'x-paystack-signature: deadbeef' \
+  -d '{"event":"charge.success","data":{}}'
+# Expect: {"success":false,...,"message":"Invalid webhook signature"} (HTTP 401)
+```
+
+### 3. Callback URL
+
+The backend sends `callback_url` automatically on checkout initialization
+(`${CLIENT_URL}/payment/callback`), so no Paystack-dashboard callback setting
+is required — just keep `CLIENT_URL` correct.
+
+### 4. Sandbox purchase sanity check
+
+1. As a student, initialize checkout for a published premium course
+   (`POST /api/payments/initiate`) — expect `authorizationUrl` from
+   `checkout.paystack.com`.
+2. Complete the sandbox payment (Paystack test cards).
+3. `GET /api/payments/<reference>` must flip `pending → verified` with
+   `enrollmentGranted: true`; the student then sees the course content in the
+   dashboard.
+
+---
+
 ## Connecting the Deployed Frontend
 
 Once the backend is live, update the frontend's production environment variable:
