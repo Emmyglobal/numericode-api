@@ -1,6 +1,6 @@
 import type { Request, Response, NextFunction } from 'express'
 import { query } from '../db/pool'
-import { ok, notFound } from '../utils/response'
+import { ok, notFound, fail } from '../utils/response'
 import { forbidden } from '../utils/response'
 import { buildFullCourse } from './courses.controller'
 import type {
@@ -78,8 +78,10 @@ export async function getOverview(req: Request, res: Response, next: NextFunctio
 
 export async function getMyCourses(req: Request, res: Response, next: NextFunction) {
   try {
-    const { rows } = await query<CourseRow & { progress: number; enrolled_at: Date; instructor_name: string; instructor_bio: string }>(
-      `SELECT c.*, e.progress, e.enrolled_at, u.name AS instructor_name, u.bio AS instructor_bio
+    const { rows } = await query<CourseRow & { progress: number; enrolled_at: Date; instructor_name: string; instructor_bio: string; purchased: boolean }>(
+      `SELECT c.*, e.progress, e.enrolled_at, u.name AS instructor_name, u.bio AS instructor_bio,
+              EXISTS (SELECT 1 FROM payments p
+                       WHERE p.user_id = e.user_id AND p.course_id = e.course_id AND p.status = 'verified') AS purchased
        FROM courses c
        JOIN enrollments e ON e.course_id = c.id
        JOIN users u ON u.id = c.instructor_id
@@ -90,9 +92,94 @@ export async function getMyCourses(req: Request, res: Response, next: NextFuncti
       id: c.id, title: c.title, description: c.description, subject: c.subject,
       level: c.level, lessonCount: c.lesson_count, progress: c.progress,
       accessLevel: c.access_level, priceCents: c.price_cents, currency: c.currency,
+      premiumEnabled: c.premium_enabled,
+      // A verified payment means this course was individually purchased. The
+      // UI uses this to honour the purchased-course policy (no self-serve
+      // removal) without calling the delete endpoint just to be told "no".
+      purchased: Boolean(c.purchased),
       instructor: { id: c.instructor_id, name: c.instructor_name, bio: c.instructor_bio },
       enrolledAt: c.enrolled_at.toISOString(), createdAt: c.created_at.toISOString(),
     })))
+  } catch (err) { next(err) }
+}
+
+/**
+ * DELETE /api/dashboard/courses/:id — "Remove Course".
+ *
+ * Removes ONLY the authenticated student's registration in this course.
+ * The endpoint derives the student from the JWT on `req.user`; the browser can
+ * never specify another user_id.
+ *
+ * Safety contract (mirrors the product rules):
+ *  - The course, its modules/lessons, the trainer and OTHER students'
+ *    enrollments are NEVER touched.
+ *  - No table references `enrollments` via a foreign key (verified in the
+ *    migration), so deleting the enrollment row cannot cascade into
+ *    lesson_completions / quiz_attempts / submissions / course_notes / payments.
+ *  - A VERIFIED payment for this course is treated as a legitimately purchased
+ *    access: the enrollment is NOT removed, the payment is NOT marked refunded,
+ *    and no financial record is altered. Purchased-course removal is subject to
+ *    the platform's purchase/refund policy (only a real refund workflow changes
+ *    payment status).
+ *  - Repeated calls are safe: once the enrollment row is gone, the next call
+ *    returns a controlled 404 ("not enrolled") instead of an unhandled error.
+ */
+export async function removeMyCourse(req: Request, res: Response, next: NextFunction) {
+  try {
+    const userId = req.user!.userId
+    const courseId = req.params.id
+
+    // 1. The course must exist. Deliberately NOT restricted to published —
+    //    a student must be able to clean up an unpublished/archived course from
+    //    My Courses too.
+    const { rows: courseRows } = await query<CourseRow>(
+      'SELECT id, access_level FROM courses WHERE id = $1',
+      [courseId]
+    )
+    if (!courseRows[0]) return notFound(res, 'Course not found')
+
+    // 2. The enrollment must belong to the authenticated student. This also
+    //    covers repeated removes (second request → controlled 404).
+    const { rows: enrollmentRows } = await query<{ id: string }>(
+      'SELECT id FROM enrollments WHERE user_id = $1 AND course_id = $2',
+      [userId, courseId]
+    )
+    if (!enrollmentRows[0]) return notFound(res, 'You are not enrolled in this course')
+
+    // 3. Purchased-course protection (premium courses with a verified payment).
+    //    NEVER silently revoke legitimately purchased access and NEVER touch
+    //    payment/audit records. Communicate the platform's purchase/refund
+    //    policy instead of deleting anything.
+    if (courseRows[0].access_level === 'premium') {
+      const { rows: paid } = await query<{ id: string }>(
+        `SELECT id FROM payments WHERE user_id = $1 AND course_id = $2 AND status = 'verified' LIMIT 1`,
+        [userId, courseId]
+      )
+      if (paid[0]) {
+        return fail(
+          res,
+          'You purchased this course, so it cannot be removed from here. ' +
+          'Purchased-course removal is subject to the platform purchase/refund policy — ' +
+          'your payment record is preserved and is never automatically refunded. ' +
+          'Please contact support to discuss refunds.',
+          409
+        )
+      }
+    }
+
+    // 4. Remove ONLY the enrollment row. Learning history and payment history
+    //    live in separate tables and are preserved.
+    const { rowCount } = await query(
+      'DELETE FROM enrollments WHERE user_id = $1 AND course_id = $2',
+      [userId, courseId]
+    )
+    if (!rowCount) return notFound(res, 'You are not enrolled in this course')
+
+    return ok(res, {
+      removed: true,
+      courseId,
+      message: 'Course removed from your courses',
+    })
   } catch (err) { next(err) }
 }
 

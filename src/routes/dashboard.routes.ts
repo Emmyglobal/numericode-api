@@ -3,6 +3,7 @@ import { requireAuth, requireRole } from '../middleware/auth'
 import {
   getOverview, getMyCourses, getAssignments, getAssignment, getAnnouncements,
   getLiveClasses, getProfile, updateProfile, getMyCourse, completeLesson,
+  removeMyCourse,
 } from '../controllers/dashboard.controller'
 
 const router = Router()
@@ -14,6 +15,7 @@ const guard = [requireAuth, requireRole('student' as const)]
 router.get('/dashboard',         ...guard, getOverview)
 router.get('/dashboard/courses', ...guard, getMyCourses)
 router.get('/dashboard/courses/:id', ...guard, getMyCourse)
+router.delete('/dashboard/courses/:id', ...guard, removeMyCourse)
 router.put('/dashboard/lessons/:lessonId/complete', ...guard, completeLesson)
 router.get('/assignments',       ...guard, getAssignments)
 router.get('/assignments/:id',   ...guard, getAssignment)
