@@ -75,6 +75,11 @@ beforeEach(async () => {
       ensureFixtureUser('Chidi Obi', 'chidi@gmail.com', 'student', 'active', true),
       ensureFixtureUser('Emeka Nwosu', 'emeka@gmail.com', 'student', 'suspended', true),
     ])
+    // Students referenced by name in the enrollment/removal tests.
+    await Promise.all([
+      ensureFixtureUser('Kolade Student', 'kolade@gmail.com', 'student', 'active', true),
+      ensureFixtureUser('Amaka Student', 'amaka@gmail.com', 'student', 'active', true),
+    ])
   } catch (err: any) {
     console.warn('beforeEach: test setup encountered an error:', err?.message ?? err)
   }
@@ -83,10 +88,14 @@ beforeEach(async () => {
 beforeAll(async () => {
   try {
     await cleanupGeneratedUsers()
-    await Promise.all([
+            await Promise.all([
       ensureFixtureUser('Emmanuel Nwafor', 'emmanuel@numerycode.com', 'admin', 'active', true),
       ensureFixtureUser('Chidi Obi', 'chidi@gmail.com', 'student', 'active', true),
       ensureFixtureUser('Emeka Nwosu', 'emeka@gmail.com', 'student', 'suspended', true),
+    ])
+    await Promise.all([
+      ensureFixtureUser('Kolade Student', 'kolade@gmail.com', 'student', 'active', true),
+      ensureFixtureUser('Amaka Student', 'amaka@gmail.com', 'student', 'active', true),
     ])
   } catch (err: any) {
     console.warn('beforeAll: test global setup encountered an error:', err?.message ?? err)

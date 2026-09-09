@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest'
+import bcrypt from 'bcryptjs'
 import request from 'supertest'
 import { createApp } from '../app'
 import { query } from '../db/pool'
@@ -21,6 +22,34 @@ import { query } from '../db/pool'
 //   - Repeated removal is a controlled 404, not an unhandled error.
 
 const app = createApp()
+
+// Self-contained fixture ensure: upserts the named test accounts as active &
+// loginable (password 'password123') so the suite does not depend on ordering
+// of the global test setup hooks or on pre-existing demo data. These emails are
+// test fixtures only and are never matched by the global cleanup (which targets
+// *@example.com and a fixed roster of seeded names), so they are preserved.
+async function ensureLoginUser(email: string, name: string, role: 'student' | 'trainer' | 'admin') {
+  const passwordHash = await bcrypt.hash('password123', 10)
+  await query(
+    `INSERT INTO users (name, email, password_hash, role, status, account_activated)
+     VALUES ($1, $2, $3, $4, 'active', TRUE)
+     ON CONFLICT (email) DO UPDATE
+       SET name = EXCLUDED.name,
+           password_hash = EXCLUDED.password_hash,
+           role = EXCLUDED.role,
+           status = 'active',
+           account_activated = TRUE`,
+    [name, email, passwordHash, role]
+  )
+}
+
+async function login(email: string): Promise<string> {
+  const res = await request(app).post('/api/auth/login').send({ email, password: 'password123' })
+  if (!res.body?.data?.token) {
+    throw new Error(`Login fixture failed for ${email}: ${res.status} ${res.body?.message ?? ''}`)
+  }
+  return res.body.data.token
+}
 
 let studentAToken: string // kolade@gmail.com
 let studentBToken: string // amaka@gmail.com
@@ -96,8 +125,14 @@ const A = () => ({ Authorization: `Bearer ${studentAToken}` })
 const B = () => ({ Authorization: `Bearer ${studentBToken}` })
 
 beforeAll(async () => {
-  const login = async (email: string) =>
-    (await request(app).post('/api/auth/login').send({ email, password: 'password123' })).body.data.token
+  // Ensure all fixture accounts exist and are loginable before attempting login,
+  // so the suite is robust to DB state and test-file ordering.
+  await Promise.all([
+    ensureLoginUser('kolade@gmail.com', 'Kolade Student', 'student'),
+    ensureLoginUser('amaka@gmail.com', 'Amaka Student', 'student'),
+    ensureLoginUser('trainer@numerycode.com', 'Trainer NumeryCode', 'trainer'),
+    ensureLoginUser('emmanuel@numerycode.com', 'Emmanuel Nwafor', 'admin'),
+  ])
 
   studentAToken = await login('kolade@gmail.com')
   studentBToken = await login('amaka@gmail.com')
