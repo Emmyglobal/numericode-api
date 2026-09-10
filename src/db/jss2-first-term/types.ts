@@ -52,7 +52,7 @@ export interface Jss2LessonData {
   duration: number
   quiz: Jss2QuizData
   assignment: Jss2AssignmentData
-  resources: Jss2Resource[]
+  resources?: Jss2Resource[]
 }
 
 export interface Jss2Resource {
