@@ -36,6 +36,39 @@ function validateSingleChoiceOptions(
   return { ok: true, normalized: opts }
 }
 
+// Strip the answer key from multiple-choice options before sending them to a
+// student. The `isCorrect` flags live inside the stored JSONB payload and would
+// leak every correct answer through the network tab if forwarded verbatim.
+function toStudentOptions(options: unknown): unknown {
+  if (!Array.isArray(options)) return options
+  return (options as Array<Record<string, unknown>>).map(o => {
+    if (!o || typeof o !== 'object' || !('isCorrect' in o)) return o
+    const { isCorrect: _stripped, ...rest } = o
+    return rest
+  })
+}
+
+// Key-order-independent JSON comparison used for idempotent-submit detection.
+function stableStringify(value: unknown): string {
+  if (value === null || value === undefined) return 'null'
+  if (typeof value !== 'object') return JSON.stringify(value)
+  if (Array.isArray(value)) return `[${value.map(stableStringify).join(',')}]`
+  const entries = Object.entries(value as Record<string, unknown>)
+    .sort(([a], [b]) => a.localeCompare(b))
+  return `{${entries.map(([k, v]) => `${JSON.stringify(k)}:${stableStringify(v)}`).join(',')}}`
+}
+
+// Product rule: a quiz must be finishable in UNDER one hour. timeLimit is
+// expressed in whole minutes, so the valid range is 1..59 (or omitted/null).
+function validateTimeLimit(timeLimit: unknown): string | null {
+  if (timeLimit === undefined || timeLimit === null) return null
+  const n = Number(timeLimit)
+  if (!Number.isFinite(n) || !Number.isInteger(n) || n < 1 || n >= 60) {
+    return 'Quiz time limit must be between 1 and 59 minutes (below 1 hour)'
+  }
+  return null
+}
+
 // ─── Quiz CRUD ───────────────────────────────────────────────────────────────
 
 export async function listQuizzes(req: Request, res: Response, next: NextFunction) {
@@ -150,7 +183,7 @@ export async function getQuiz(req: Request, res: Response, next: NextFunction) {
     )
 
     // Do NOT expose correct_answer to students (answer-key leakage prevention).
-    // Trainers/admins managing the quiz use getQuizDetail instead.
+    // Trainers/admins managing the quiz get the full payload.
     const isStudent = req.user!.role === 'student'
     return ok(res, {
       id: quiz.id, courseId: quiz.course_id, moduleId: quiz.module_id, lessonId: quiz.lesson_id,
@@ -159,7 +192,7 @@ export async function getQuiz(req: Request, res: Response, next: NextFunction) {
       shuffleQuestions: quiz.shuffle_questions, showResults: quiz.show_results,
       questions: questions.map(q => ({
         id: q.id, questionText: q.question_text, questionType: q.question_type,
-        options: q.options, points: Number(q.points), position: q.position,
+        options: isStudent ? toStudentOptions(q.options) : q.options, points: Number(q.points), position: q.position,
         // correctAnswer is intentionally omitted for students
       })),
       createdAt: quiz.created_at.toISOString(),
@@ -176,6 +209,9 @@ export async function createQuiz(req: Request, res: Response, next: NextFunction
     }
     
     if (!courseId || !title) return fail(res, 'Course ID and title are required', 400)
+    // Product rule: quizzes must be completable in under 1 hour.
+    const timeLimitError = validateTimeLimit(timeLimit)
+    if (timeLimitError) return fail(res, timeLimitError, 400)
     
     const client = await getClient()
     
@@ -233,6 +269,9 @@ export async function updateQuiz(req: Request, res: Response, next: NextFunction
       title?: string; description?: string; timeLimit?: number; passingScore?: number; maxAttempts?: number; shuffleQuestions?: boolean; showResults?: boolean
     }
     
+    // Product rule: quizzes must be completable in under 1 hour.
+    const timeLimitError = validateTimeLimit(timeLimit)
+    if (timeLimitError) return fail(res, timeLimitError, 400)
     const { rows: [quiz] } = await query<QuizRow>(
       `UPDATE quizzes SET
         title = COALESCE($1, title), description = COALESCE($2, description),
@@ -389,7 +428,7 @@ export async function startQuizAttempt(req: Request, res: Response, next: NextFu
       attemptId: attempt.id,
       questions: questions.map(q => ({
         id: q.id, questionText: q.question_text, questionType: q.question_type,
-        options: q.options, points: Number(q.points), position: q.position,
+        options: toStudentOptions(q.options), points: Number(q.points), position: q.position,
         // correctAnswer is intentionally omitted
       })),
       timeLimit: quiz.time_limit,
@@ -463,9 +502,31 @@ export async function submitQuizAttempt(req: Request, res: Response, next: NextF
     const score = totalPoints > 0 ? (earnedPoints / totalPoints) * 100 : 0
     const passed = score >= quiz.passing_score
 
-    // Mark the open attempt complete; if the student never officially started an
-    // attempt (or re‑submits after a previous completion), record the graded
-    // attempt anyway so the score is never lost.
+    // ── Timing enforcement ──────────────────────────────────────────────────
+    // An attempt whose server-side started_at is older than the quiz time limit
+    // (plus a 60s network grace) can no longer be graded. The limit itself is
+    // capped below 1 hour by validateTimeLimit at create/update time.
+    const { rows: openRows } = await query<AttemptRow>(
+      'SELECT * FROM quiz_attempts WHERE quiz_id = $1 AND user_id = $2 AND completed_at IS NULL ORDER BY started_at DESC LIMIT 1',
+      [quizId, userId]
+    )
+    const openAttempt = openRows[0]
+    if (openAttempt && quiz.time_limit != null) {
+      const deadlineMs = new Date(openAttempt.started_at).getTime() + (Number(quiz.time_limit) * 60 + 60) * 1000
+      if (Date.now() > deadlineMs) {
+        // Close the expired attempt without a score so attempt counting stays honest.
+        await query('UPDATE quiz_attempts SET completed_at = NOW() WHERE id = $1 AND completed_at IS NULL', [openAttempt.id])
+        return fail(res, 'Time limit exceeded — this attempt has been closed. Retry the quiz if attempts remain.', 403)
+      }
+    }
+
+    // ── Persist the graded attempt (idempotently) ───────────────────────────
+    // 1. An open attempt is completed in place.
+    // 2. With no open attempt: an exact repeat of the last graded answer set
+    //    (double-click / network retry) returns the ORIGINAL result instead of
+    //    recording a duplicate attempt.
+    // 3. A genuinely new submission is only accepted while the student has
+    //    attempts left (completed attempts < max_attempts).
     const { rows: [attempt] } = await query<AttemptRow>(
       `UPDATE quiz_attempts SET completed_at = NOW(), score = $1, passed = $2, answers = $3
        WHERE quiz_id = $4 AND user_id = $5 AND completed_at IS NULL
@@ -474,13 +535,29 @@ export async function submitQuizAttempt(req: Request, res: Response, next: NextF
     )
 
     let attemptId = attempt?.id
+    let finalScore = score
+    let finalPassed = passed
     if (!attemptId) {
-      const { rows: [created] } = await query<AttemptRow>(
-        `INSERT INTO quiz_attempts (quiz_id, user_id, completed_at, score, passed, answers)
-         VALUES ($1, $2, NOW(), $3, $4, $5) RETURNING *`,
-        [quizId, userId, score, passed, JSON.stringify(answers)]
+      const { rows: completedRows } = await query<AttemptRow>(
+        `SELECT * FROM quiz_attempts WHERE quiz_id = $1 AND user_id = $2 AND completed_at IS NOT NULL ORDER BY started_at DESC`,
+        [quizId, userId]
       )
-      attemptId = created?.id
+      const lastCompleted = completedRows[0]
+      if (lastCompleted && stableStringify(lastCompleted.answers) === stableStringify(answers)) {
+        // Idempotent retry — same answers as the recorded attempt: replay it.
+        attemptId = lastCompleted.id
+        finalScore = lastCompleted.score != null ? Number(lastCompleted.score) : score
+        finalPassed = lastCompleted.passed ?? passed
+      } else if (completedRows.length >= quiz.max_attempts) {
+        return fail(res, 'You have exceeded the maximum number of attempts', 403)
+      } else {
+        const { rows: [created] } = await query<AttemptRow>(
+          `INSERT INTO quiz_attempts (quiz_id, user_id, completed_at, score, passed, answers)
+           VALUES ($1, $2, NOW(), $3, $4, $5) RETURNING *`,
+          [quizId, userId, score, passed, JSON.stringify(answers)]
+        )
+        attemptId = created?.id
+      }
     }
 
     // Recompute composite progress (lessons + assignments + quizzes) when a quiz is
@@ -493,14 +570,47 @@ export async function submitQuizAttempt(req: Request, res: Response, next: NextF
       console.error('progress recompute failed after quiz submission', e)
     }
 
+    // ── Server-side marking result + per-question corrections ──────────────
+    // The corrections payload is the ONLY source of correct answers for the
+    // student review screen — it is emitted after grading, only when the quiz
+    // allows showing results, and is always consistent with the recorded score.
+    const corrections = quiz.show_results
+      ? questions.map(q => {
+          const userAnswer = (answers ?? {})[q.id]
+          const options = q.options as Array<{ id: string; text?: string; isCorrect?: boolean }> | null
+          const correctFromOptions = options?.filter(o => o && o.isCorrect === true).map(o => String(o.id)) ?? []
+          const correctId = q.correct_answer != null && q.correct_answer !== ''
+            ? String(q.correct_answer)
+            : correctFromOptions[0] ?? null
+          let earned: boolean | null = null
+          if (q.question_type === 'multiple_choice') {
+            const userOption = Array.isArray(userAnswer) ? userAnswer[0] : userAnswer
+            earned = correctId != null && userOption != null && String(userOption) === correctId
+          } else if (q.question_type === 'true_false' || q.question_type === 'fill_blank') {
+            earned = String(userAnswer ?? '').toLowerCase().trim() === String(q.correct_answer ?? '').toLowerCase().trim()
+          } // essay → null (awaiting manual grading)
+          return {
+            questionId: q.id,
+            earned,
+            userAnswer: userAnswer ?? null,
+            correctOptionIds: q.question_type === 'multiple_choice'
+              ? (correctFromOptions.length > 0 ? correctFromOptions : correctId != null ? [correctId] : [])
+              : [],
+            correctOptionText: options?.find(o => o && String(o.id) === correctId)?.text ?? null,
+            correctAnswerText: q.question_type === 'multiple_choice' ? null : (q.correct_answer ?? null),
+          }
+        })
+      : undefined
+
     return ok(res, {
       attemptId,
-      score: Number(score),
-      passed,
+      score: Number(finalScore),
+      passed: finalPassed,
       totalPoints: Number(totalPoints),
       earnedPoints: Number(earnedPoints),
       showResults: quiz.show_results,
       passingScore: Number(quiz.passing_score),
+      corrections,
     })
   } catch (err) { next(err) }
 }

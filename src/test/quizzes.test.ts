@@ -96,6 +96,8 @@ afterAll(async () => {
   if (createdCourseIds.length > 0) {
     await query('DELETE FROM courses WHERE id = ANY($1::uuid[])', [createdCourseIds])
   }
+})
+
 describe('quizzes: authorization', () => {
   it('401 — unauthenticated user cannot view, start, or submit a quiz', async () => {
     const courseId = await createQuizCourse()
@@ -157,9 +159,21 @@ describe('quizzes: authorization', () => {
         }
       }
     }
+
+    // The attempt-start payload must not leak the key either.
+    const start = await request(app).post(`/api/quizzes/quizzes/${quiz.id}/start`).set(auth(studentToken))
+    expect(start.status).toBe(201)
+    for (const q of start.body.data.questions) {
+      expect(q).not.toHaveProperty('correctAnswer')
+      if (q.questionType === 'multiple_choice') {
+        for (const opt of q.options as Array<{ isCorrect?: boolean }>) {
+          expect(opt.isCorrect).toBeUndefined()
+        }
+      }
+    }
   })
 })
-})
+
 describe('quizzes: grading authority & idempotency', () => {
   it('scores a fully-correct attempt at 100 and marks it passed', async () => {
     const courseId = await createQuizCourse()
@@ -244,6 +258,7 @@ it('ignores client-supplied score/passed and grades server-side only', async () 
 
   
 
+  it('repeated identical submissions are idempotent — exactly one completed attempt', async () => {
     const courseId = await createQuizCourse()
     await enrollStudent(courseId)
     const { quiz } = await createQuizOnCourse(courseId, 'Phase20 Idempotent Submit')
@@ -324,5 +339,113 @@ it('ignores client-supplied score/passed and grades server-side only', async () 
     expect(submit.status).toBe(200)
     // q1 correct (10pts), q2 unanswered → 10/20 = 50%
     expect(submit.body.data.score).toBe(50)
+  })
+})
+
+describe('quizzes: timing (< 1hr) and marked corrections', () => {
+  it('400 — quiz time limit must be BELOW 1 hour (60+ minutes rejected)', async () => {
+    const courseId = await createQuizCourse()
+    const res = await request(app).post('/api/quizzes/quizzes').set(auth(trainerToken)).send({
+      courseId, title: `Phase20 TooLong ${Date.now()}`, timeLimit: 60,
+      questions: [],
+    })
+    expect(res.status).toBe(400)
+    expect(res.body.message).toContain('below 1 hour')
+  })
+
+  it('400 — fractional / non-positive time limits are rejected', async () => {
+    const courseId = await createQuizCourse()
+    for (const bad of [0, -5, 12.5]) {
+      const res = await request(app).post('/api/quizzes/quizzes').set(auth(trainerToken)).send({
+        courseId, title: `Phase20 BadLimit ${Date.now()}-${bad}`, timeLimit: bad,
+      })
+      expect(res.status).toBe(400)
+    }
+  })
+
+  it('201 — a sub-1-hour time limit (e.g. 45 min) is accepted', async () => {
+    const courseId = await createQuizCourse()
+    const res = await request(app).post('/api/quizzes/quizzes').set(auth(trainerToken)).send({
+      courseId, title: `Phase20 OkLimit ${Date.now()}`, timeLimit: 45,
+    })
+    expect(res.status).toBe(201)
+    expect(res.body.data.timeLimit).toBe(45)
+    createdQuizIds.push(res.body.data.id)
+  })
+
+  it('submit marks the attempt server-side AND returns per-question corrections', async () => {
+    const courseId = await createQuizCourse()
+    await enrollStudent(courseId)
+    const { quiz } = await createQuizOnCourse(courseId, 'Phase20 Corrections')
+
+    const { rows: qRows } = await query<{ id: string; options: unknown; question_type: string }>(
+      'SELECT id, options, question_type FROM quiz_questions WHERE quiz_id = $1 ORDER BY position',
+      [quiz.id]
+    )
+    const answers: Record<string, unknown> = {}
+    for (const q of qRows) {
+      if (q.options) {
+        const opts = q.options as Array<{ id: string; isCorrect: boolean }>
+        const wrong = opts.find(o => !o.isCorrect)!
+        answers[q.id] = [wrong.id]
+      } else {
+        answers[q.id] = 'false'
+      }
+    }
+
+    const submit = await request(app).post(`/api/quizzes/quizzes/${quiz.id}/submit`).set(auth(studentToken)).send({ answers })
+    expect(submit.status).toBe(200)
+    expect(submit.body.data.score).toBe(0)
+    expect(submit.body.data.passed).toBe(false)
+
+    const corrections = submit.body.data.corrections
+    expect(Array.isArray(corrections)).toBe(true)
+    expect(corrections).toHaveLength(qRows.length)
+    for (const c of corrections) {
+      expect(c.earned).toBe(false)
+      expect(Array.isArray(c.correctOptionIds)).toBe(true)
+      expect(c.userAnswer).not.toBeNull()
+    }
+    // The wrong multiple-choice submission must reveal the CORRECT option id.
+    const mc = qRows.find(q => q.options)!
+    const mcCorrection = corrections.find((c: { questionId: string }) => c.questionId === mc.id)
+    const opts = mc.options as Array<{ id: string; isCorrect: boolean }>
+    expect(mcCorrection.correctOptionIds).toContain(opts.find(o => o.isCorrect)!.id)
+    // true/false correction exposes the correct answer text.
+    const tf = qRows.find(q => !q.options)!
+    const tfCorrection = corrections.find((c: { questionId: string }) => c.questionId === tf.id)
+    expect(tfCorrection.correctAnswerText?.toLowerCase()).toBe('true')
+  })
+
+  it('403 — a submission after the server-side time window is rejected and the attempt closed', async () => {
+    const courseId = await createQuizCourse()
+    await enrollStudent(courseId)
+    const { quiz } = await createQuizOnCourse(courseId, 'Phase20 Expired Attempt')
+    // Manually backdate the open attempt beyond the (below-1hr) window.
+    await request(app).post(`/api/quizzes/quizzes/${quiz.id}/start`).set(auth(studentToken))
+    await query(
+      `UPDATE quiz_attempts SET started_at = NOW() - INTERVAL '61 minutes' WHERE quiz_id = $1 AND user_id = $2 AND completed_at IS NULL`,
+      [quiz.id, studentId]
+    )
+    // Give the quiz a time limit below 1hr so the window applies.
+    await query('UPDATE quizzes SET time_limit = 30 WHERE id = $1', [quiz.id])
+
+    const { rows: qRows } = await query<{ id: string }>(
+      'SELECT id FROM quiz_questions WHERE quiz_id = $1 ORDER BY position LIMIT 1',
+      [quiz.id]
+    )
+    const submit = await request(app).post(`/api/quizzes/quizzes/${quiz.id}/submit`).set(auth(studentToken)).send({
+      answers: { [qRows[0].id]: ['b'] },
+    })
+    expect(submit.status).toBe(403)
+    expect(submit.body.message).toContain('Time limit')
+    // The expired attempt is closed — it must not count as graded.
+    const { rows: attempts } = await query<{ completed_at: Date | null; score: number | null }>(
+      'SELECT completed_at, score FROM quiz_attempts WHERE quiz_id = $1 AND user_id = $2',
+      [quiz.id, studentId]
+    )
+    expect(attempts.length).toBe(1)
+    expect(attempts[0].completed_at).not.toBeNull()
+    expect(attempts[0].score).toBeNull()
   })
 })
