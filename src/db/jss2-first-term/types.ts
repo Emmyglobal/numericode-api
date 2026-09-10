@@ -52,6 +52,14 @@ export interface Jss2LessonData {
   duration: number
   quiz: Jss2QuizData
   assignment: Jss2AssignmentData
+  resources: Jss2Resource[]
+}
+
+export interface Jss2Resource {
+  title: string
+  type: 'pdf' | 'video' | 'link'
+  url: string
+  description: string
 }
 
 export interface Jss2ModuleData {

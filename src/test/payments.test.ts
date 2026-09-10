@@ -154,12 +154,27 @@ describe('payments: price integrity (server-authoritative)', () => {
     expect(res.status).toBe(403)
   })
 
-  it('409 — already-enrolled student is never charged again', async () => {
+  it('409 — student with verified access is never charged again', async () => {
     const course = await createCourse()
-    await query('INSERT INTO enrollments (user_id, course_id) VALUES ($1, $2) ON CONFLICT DO NOTHING', [studentId, course.id])
+    // A verified payment (granting real access) must block a second charge.
+    await query(
+      `INSERT INTO payments (user_id, course_id, reference, email, amount_subunits, currency, status)
+       VALUES ($1, $2, $3, 'kolade@gmail.com', 50000, 'NGN', 'verified')`,
+      [studentId, course.id, `NCP-TEST-VER-${Date.now()}`]
+    )
     const res = await request(app).post('/api/payments/initiate').set(auth()).send({ courseId: course.id })
     expect(res.status).toBe(409)
     expect(res.body.message).toMatch(/already have access/i)
+  })
+
+  it('201 — a bare enrollment (no payment/subscription) does NOT block checkout', async () => {
+    // Regression guard: registration auto-matching used to create premium
+    // enrollments without access. The student must still be able to purchase.
+    const course = await createCourse()
+    await query('INSERT INTO enrollments (user_id, course_id) VALUES ($1, $2) ON CONFLICT DO NOTHING', [studentId, course.id])
+    const res = await request(app).post('/api/payments/initiate').set(auth()).send({ courseId: course.id })
+    expect(res.status).toBe(201)
+    expect(res.body.data.reference).toMatch(/^NCP-/)
   })
 })
 

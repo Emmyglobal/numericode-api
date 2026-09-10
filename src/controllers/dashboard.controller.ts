@@ -13,7 +13,13 @@ export async function getOverview(req: Request, res: Response, next: NextFunctio
     const userId = req.user!.userId
 
     const { rows: enrollments } = await query<EnrollmentRow & { title: string }>(
-      `SELECT e.*, c.title FROM enrollments e JOIN courses c ON c.id = e.course_id WHERE e.user_id = $1`,
+      `SELECT e.*, c.title FROM enrollments e JOIN courses c ON c.id = e.course_id
+       WHERE e.user_id = $1
+         AND (c.access_level = 'free'
+              OR (c.premium_enabled AND (
+                EXISTS (SELECT 1 FROM subscriptions s WHERE s.user_id = e.user_id AND s.status = 'active' AND s.ends_at > NOW())
+                OR EXISTS (SELECT 1 FROM payments p WHERE p.user_id = e.user_id AND p.course_id = e.course_id AND p.status = 'verified')
+              )))`,
       [userId]
     )
 
@@ -42,6 +48,15 @@ export async function getOverview(req: Request, res: Response, next: NextFunctio
       `SELECT * FROM announcements WHERE audience IN ('all','students') ORDER BY created_at DESC LIMIT 3`
     )
 
+    // Calculate average completion progress across all enrolled courses
+    const { rows: avgProgressRows } = await query<{ avg_progress: string }>(
+      `SELECT COALESCE(AVG(e.progress), 0)::text AS avg_progress
+       FROM enrollments e
+       WHERE e.user_id = $1`,
+      [userId]
+    )
+    const avgCompletionProgress = Math.round(Number(avgProgressRows[0]?.avg_progress ?? 0))
+
     const primary = enrollments[0]
     let continuelearning = null
     if (primary) {
@@ -64,6 +79,7 @@ export async function getOverview(req: Request, res: Response, next: NextFunctio
       completedLessons: Number(completedRows[0].count),
       upcomingClassesCount: upcomingClasses.length,
       assignmentsDue: Number(pendingAssignments[0].count),
+      avgCompletionProgress, // NEW: Average progress across all enrolled courses
       continuelearning,
       upcomingClasses: upcomingClasses.map(c => ({
         id: c.id, courseTitle: c.course_title, subject: c.subject, title: c.title,
@@ -85,7 +101,12 @@ export async function getMyCourses(req: Request, res: Response, next: NextFuncti
        FROM courses c
        JOIN enrollments e ON e.course_id = c.id
        JOIN users u ON u.id = c.instructor_id
-       WHERE e.user_id = $1`,
+       WHERE e.user_id = $1
+         AND (c.access_level = 'free'
+              OR (c.premium_enabled AND (
+                EXISTS (SELECT 1 FROM subscriptions s WHERE s.user_id = e.user_id AND s.status = 'active' AND s.ends_at > NOW())
+                OR EXISTS (SELECT 1 FROM payments p WHERE p.user_id = e.user_id AND p.course_id = e.course_id AND p.status = 'verified')
+              )))`,
       [req.user!.userId]
     )
     return ok(res, rows.map(c => ({

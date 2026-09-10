@@ -205,18 +205,22 @@ export async function register(req: Request, res: Response, next: NextFunction) 
            VALUES ($1, $2, $3, $4, $5)`,
           [user.id, guardianName!.trim(), guardianPhone!.trim(), teachers[0].name, subjects]
         )
+        // Auto-matching may ONLY enrol a new student into FREE courses. A premium
+        // course requires an active subscription or a verified payment (enforced
+        // server-side everywhere), so an automatic enrollment must never create a
+        // locked course entry the student cannot open.
         const enrollmentQuery = useAutomaticMatching
           ? `INSERT INTO enrollments (user_id, course_id)
              SELECT $1, id FROM (
                SELECT DISTINCT ON (subject) id FROM courses
-               WHERE status = 'published' AND subject = ANY($2::text[])
+               WHERE status = 'published' AND access_level = 'free' AND subject = ANY($2::text[])
                ORDER BY subject, created_at ASC
              ) AS matched_courses
              ON CONFLICT (user_id, course_id) DO NOTHING`
           : `INSERT INTO enrollments (user_id, course_id)
              SELECT $1, id FROM (
                SELECT DISTINCT ON (subject) id FROM courses
-               WHERE status = 'published' AND instructor_id = $2 AND subject = ANY($3::text[])
+               WHERE status = 'published' AND access_level = 'free' AND instructor_id = $2 AND subject = ANY($3::text[])
                ORDER BY subject, created_at ASC
              ) AS matched_courses
              ON CONFLICT (user_id, course_id) DO NOTHING`

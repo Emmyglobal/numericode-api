@@ -156,17 +156,20 @@ export async function initiateCoursePayment(req: Request, res: Response, next: N
     if (!course.premium_enabled) return fail(res, 'Premium access is temporarily unavailable for this course', 403)
     if (!(course.price_cents > 0)) return fail(res, 'This course is not open for purchase yet', 400)
 
-    // Already has access? Never charge twice for the same course.
-    const { rows: enrolled } = await query(
-      'SELECT 1 FROM enrollments WHERE user_id = $1 AND course_id = $2',
+    // Already has access? Never charge twice for the same course. A bare
+    // enrollment row is NOT access for a premium course — the student must hold
+    // an active subscription OR a verified payment for this course. (The
+    // registration auto-matching used to enrol new students into premium
+    // courses they never paid for, leaving locked enrollments the student could
+    // neither open nor purchase — so do not block checkout on enrollment alone.)
+    const { rows: access } = await query<{ id: string }>(
+      `SELECT 1 AS id FROM subscriptions WHERE user_id = $1 AND status = 'active' AND ends_at > NOW()
+       UNION ALL
+       SELECT 1 FROM payments WHERE user_id = $1 AND course_id = $2 AND status = 'verified'
+       LIMIT 1`,
       [req.user!.userId, courseId]
     )
-    if (enrolled[0]) return fail(res, 'You already have access to this course', 409)
-    const { rows: paid } = await query(
-      `SELECT 1 FROM payments WHERE user_id = $1 AND course_id = $2 AND status = 'verified'`,
-      [req.user!.userId, courseId]
-    )
-    if (paid[0]) return fail(res, 'You have already paid for this course', 409)
+    if (access[0]) return fail(res, 'You already have access to this course', 409)
 
     const { rows: users } = await query<{ email: string }>('SELECT email FROM users WHERE id = $1', [req.user!.userId])
     if (!users[0]?.email) return fail(res, 'Your account has no email — checkout cannot start', 400)
