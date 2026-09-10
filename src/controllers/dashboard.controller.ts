@@ -94,19 +94,24 @@ export async function getOverview(req: Request, res: Response, next: NextFunctio
 
 export async function getMyCourses(req: Request, res: Response, next: NextFunction) {
   try {
-    const { rows } = await query<CourseRow & { progress: number; enrolled_at: Date; instructor_name: string; instructor_bio: string; purchased: boolean }>(
+    // NOTE: We intentionally list EVERY enrollment row (including premium
+    // courses the student has not yet paid for). The `access_active` flag lets
+    // the UI show a clear "Payment Required" state with a "Complete Payment"
+    // action for locked premium enrollments, instead of the old dead-end that
+    // pointed a locked course at the viewer (which correctly 403'd). The
+    // protected-content gate in getMyCourse below is NOT weakened.
+    const { rows } = await query<CourseRow & { progress: number; enrolled_at: Date; instructor_name: string; instructor_bio: string; purchased: boolean; access_active: boolean }>(
       `SELECT c.*, e.progress, e.enrolled_at, u.name AS instructor_name, u.bio AS instructor_bio,
               EXISTS (SELECT 1 FROM payments p
-                       WHERE p.user_id = e.user_id AND p.course_id = e.course_id AND p.status = 'verified') AS purchased
+                       WHERE p.user_id = e.user_id AND p.course_id = e.course_id AND p.status = 'verified') AS purchased,
+              (c.access_level = 'free' OR (c.premium_enabled AND (
+                EXISTS (SELECT 1 FROM subscriptions s WHERE s.user_id = e.user_id AND s.status = 'active' AND s.ends_at > NOW())
+                OR EXISTS (SELECT 1 FROM payments p WHERE p.user_id = e.user_id AND p.course_id = e.course_id AND p.status = 'verified')
+              ))) AS access_active
        FROM courses c
        JOIN enrollments e ON e.course_id = c.id
        JOIN users u ON u.id = c.instructor_id
-       WHERE e.user_id = $1
-         AND (c.access_level = 'free'
-              OR (c.premium_enabled AND (
-                EXISTS (SELECT 1 FROM subscriptions s WHERE s.user_id = e.user_id AND s.status = 'active' AND s.ends_at > NOW())
-                OR EXISTS (SELECT 1 FROM payments p WHERE p.user_id = e.user_id AND p.course_id = e.course_id AND p.status = 'verified')
-              )))`,
+       WHERE e.user_id = $1`,
       [req.user!.userId]
     )
     return ok(res, rows.map(c => ({
@@ -114,6 +119,10 @@ export async function getMyCourses(req: Request, res: Response, next: NextFuncti
       level: c.level, lessonCount: c.lesson_count, progress: c.progress,
       accessLevel: c.access_level, priceCents: c.price_cents, currency: c.currency,
       premiumEnabled: c.premium_enabled,
+      // True when the student may actually open the course right now (free, OR
+      // an active subscription, OR a verified payment for this course). Mirrors
+      // the exact server-side check used by the protected getMyCourse endpoint.
+      accessActive: Boolean(c.access_active),
       // A verified payment means this course was individually purchased. The
       // UI uses this to honour the purchased-course policy (no self-serve
       // removal) without calling the delete endpoint just to be told "no".
