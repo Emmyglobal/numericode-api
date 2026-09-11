@@ -1,3 +1,7 @@
+import type { Request, Response, NextFunction } from 'express'
+import { query } from '../db/pool'
+import { created, fail, forbidden, notFound } from '../utils/response'
+import type { AssignmentRow, EnrollmentRow, SubmissionRow } from '../types'
 export async function submitAssignment(req: Request, res: Response, next: NextFunction) {
   try {
     const { assignmentId } = req.params
@@ -49,7 +53,7 @@ export async function submitAssignment(req: Request, res: Response, next: NextFu
       id: submission.id,
       assignmentId: submission.assignment_id,
       status: submission.status,
-      submittedAt: submission.submitted_at.toISOString(),
+      submittedAt: (submission.submitted_at ?? new Date()).toISOString(),
       message: 'Assignment submitted successfully',
     })
   } catch (err) { next(err) }
