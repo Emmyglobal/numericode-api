@@ -65,7 +65,22 @@ async function callOpenAI(systemPrompt: string, userMessage: string, maxTokens =
   return text.trim()
 }
 
-// ─── Study Guide (students) ─────────────────────────────────────────────────
+/**
+ * GET /api/ai/health — reports whether the AI provider is configured.
+ * Never exposes secrets. Useful for diagnosing configuration failures.
+ */
+export async function aiHealth(_req: Request, res: Response) {
+  const configured = Boolean(process.env.OPENAI_API_KEY)
+  const model = process.env.OPENAI_MODEL || 'gpt-4o-mini'
+  return ok(res, {
+    configured,
+    model: configured ? model : null,
+    provider: 'openai',
+    message: configured
+      ? 'AI provider is configured.'
+      : 'AI provider is not configured. Set OPENAI_API_KEY in your environment.',
+  })
+}
 
 export async function studyGuide(req: Request, res: Response, next: NextFunction) {
   try {
