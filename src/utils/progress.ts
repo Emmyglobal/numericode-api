@@ -4,10 +4,12 @@ import { query } from '../db/pool'
  * Recompute an enrollment's composite progress and update it only if the new
  * value is greater than the existing stored progress (ensures monotonic growth).
  *
- * Weighted components:
- *  - lesson completion percentage (computed from lesson_completions) - 50%
- *  - assignment average percentage (graded submissions) - 30%
- *  - quizzes passed percentage (quizzes in course, passed attempts) - 20%
+ * Weighted components (renormalized when a component is absent):
+ *  - lesson completion percentage — 50%
+ *  - assignment average percentage — 30%
+ *  - quizzes passed percentage — 20%
+ *
+ * Renormalization ensures a course with no assignments/quizzes can still reach 100%.
  */
 export async function recomputeAndUpdateEnrollmentProgress(userId: string, courseId: string): Promise<number> {
   // Lesson progress
@@ -22,11 +24,14 @@ export async function recomputeAndUpdateEnrollmentProgress(userId: string, cours
   const lessonProgress = totalLessons > 0 ? (completedLessons / totalLessons) * 100 : 0
 
   // Assignment percentage (average of graded submissions for this user & course)
-  const { rows: assignmentRows } = await query<{ assignment_percentage: string }>(
-    `SELECT COALESCE((SELECT AVG((s.score / NULLIF(a.total_marks, 0)) * 100) FROM submissions s JOIN assignments a ON a.id = s.assignment_id WHERE s.user_id = $1 AND a.course_id = $2 AND s.status IN ('graded','passed','failed')), 0) as assignment_percentage`,
+  const { rows: assignmentRows } = await query<{ assignment_percentage: string; total: string }>(
+    `SELECT
+      COALESCE((SELECT AVG((s.score / NULLIF(a.total_marks, 0)) * 100) FROM submissions s JOIN assignments a ON a.id = s.assignment_id WHERE s.user_id = $1 AND a.course_id = $2 AND s.status IN ('graded','passed','failed')), 0) as assignment_percentage,
+      (SELECT COUNT(*) FROM assignments a WHERE a.course_id = $2) as total`,
     [userId, courseId]
   )
   const assignmentPercentage = Number(assignmentRows[0]?.assignment_percentage ?? 0)
+  const totalAssignments = Number(assignmentRows[0]?.total ?? 0)
 
   // Quiz pass percentage: percent of quizzes in the course that the user has a passed attempt for
   const { rows: quizRows } = await query<{ passed: string; total: string }>(
@@ -42,14 +47,38 @@ export async function recomputeAndUpdateEnrollmentProgress(userId: string, cours
   const quizTotal = Number(quizRows[0]?.total ?? 0)
   const quizPercentage = quizTotal > 0 ? (passed / quizTotal) * 100 : 0
 
-  // Composite weighting
-  const composite = Math.round((lessonProgress * 0.5) + (assignmentPercentage * 0.3) + (quizPercentage * 0.2))
+  // Determine which components are present and renormalize weights
+  const hasLessons = totalLessons > 0
+  const hasAssignments = totalAssignments > 0
+  const hasQuizzes = quizTotal > 0
+
+  const rawLessonWeight = 0.5
+  const rawAssignmentWeight = 0.3
+  const rawQuizWeight = 0.2
+
+  const totalRawWeight = (hasLessons ? rawLessonWeight : 0) + (hasAssignments ? rawAssignmentWeight : 0) + (hasQuizzes ? rawQuizWeight : 0)
+
+  // If no components at all, progress is 0
+  if (totalRawWeight === 0) {
+    return 0
+  }
+
+  // Renormalize: scale weights so they sum to 1.0
+  const lessonWeight = (hasLessons ? rawLessonWeight : 0) / totalRawWeight
+  const assignmentWeight = (hasAssignments ? rawAssignmentWeight : 0) / totalRawWeight
+  const quizWeight = (hasQuizzes ? rawQuizWeight : 0) / totalRawWeight
+
+  // Composite weighting (renormalized)
+  const composite = Math.round((lessonProgress * lessonWeight) + (assignmentPercentage * assignmentWeight) + (quizPercentage * quizWeight))
+
+  // Clamp to [0, 100]
+  const clamped = Math.min(100, Math.max(0, composite))
 
   // Ensure monotonic: only increase stored progress
   const { rows: existingRows } = await query<{ progress: number }>(`SELECT progress FROM enrollments WHERE user_id = $1 AND course_id = $2`, [userId, courseId])
-  if (!existingRows[0]) return composite
+  if (!existingRows[0]) return clamped
   const existing = Number(existingRows[0].progress ?? 0)
-  const newProgress = Math.max(existing, composite)
+  const newProgress = Math.max(existing, clamped)
   if (newProgress > existing) {
     await query(`UPDATE enrollments SET progress = $1 WHERE user_id = $2 AND course_id = $3`, [newProgress, userId, courseId])
   }

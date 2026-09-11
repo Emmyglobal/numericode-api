@@ -302,6 +302,27 @@ try {
       CREATE INDEX IF NOT EXISTS idx_course_requests_status ON course_requests(status);
       CREATE INDEX IF NOT EXISTS idx_guardian_enrollments_student_id ON guardian_enrollments(student_id);
       CREATE INDEX IF NOT EXISTS idx_submissions_user_id   ON submissions(user_id);
+
+      -- Testimonials (public submissions, moderated before publishing)
+      CREATE TABLE IF NOT EXISTS testimonials (
+        id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        user_id      UUID REFERENCES users(id) ON DELETE SET NULL,
+        name         VARCHAR(255) NOT NULL,
+        email        VARCHAR(255) NOT NULL,
+        course_id    UUID REFERENCES courses(id) ON DELETE SET NULL,
+        location     VARCHAR(255),
+        message      TEXT NOT NULL,
+        rating       INTEGER CHECK (rating IS NULL OR (rating >= 1 AND rating <= 5)),
+        status       VARCHAR(20) NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','approved','rejected')),
+        reviewed_by  UUID REFERENCES users(id) ON DELETE SET NULL,
+        reviewed_at  TIMESTAMPTZ,
+        created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      );
+      CREATE INDEX IF NOT EXISTS idx_testimonials_status ON testimonials(status);
+      CREATE INDEX IF NOT EXISTS idx_testimonials_created_at ON testimonials(created_at DESC);
+
+      -- Cap existing quiz time limits at 30 minutes (Phase 20)
+      UPDATE quizzes SET time_limit = 30 WHERE time_limit > 30;
       CREATE INDEX IF NOT EXISTS idx_live_classes_course_id ON live_classes(course_id);
       CREATE INDEX IF NOT EXISTS idx_lessons_module_id     ON lessons(module_id);
       CREATE INDEX IF NOT EXISTS idx_modules_course_id     ON modules(course_id);

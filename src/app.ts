@@ -23,12 +23,12 @@ import quizzesRoutes      from './routes/quizzes.routes'
 import forumsRoutes       from './routes/forums.routes'
 import gradingRoutes      from './routes/grading.routes'
 import notificationsEnhancedRoutes from './routes/notifications-enhanced.routes'
+import testimonialsRoutes  from './routes/testimonials.routes'
 import analyticsRoutes    from './routes/analytics.routes'
 import messagingRoutes    from './routes/messaging.routes'
 import badgesRoutes       from './routes/badges.routes'
 import resourcesRoutes    from './routes/resources.routes'
 import statsRoutes        from './routes/stats.routes'
-import testimonialsRoutes from './routes/testimonials.routes'
 import trainerCourseContentRoutes from './routes/trainer-course-content.routes'
 import adminCourseContentRoutes from './routes/admin-course-content.routes'
 import { errorHandler, notFoundHandler } from './middleware/errorHandler'
@@ -85,6 +85,7 @@ app.get('/health', (_req, res) => {
   app.use('/api/code-editor', codeEditorRoutes)
   app.use('/api', assessmentsRoutes)
   app.use('/api/certificates', certificatesRoutes)
+  app.use('/api/testimonials', testimonialsRoutes)
   app.use('/api/quizzes', quizzesRoutes)
   app.use('/api/forums', forumsRoutes)
   app.use('/api/grading', gradingRoutes)

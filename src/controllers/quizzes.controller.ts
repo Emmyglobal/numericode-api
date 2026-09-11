@@ -58,13 +58,16 @@ function stableStringify(value: unknown): string {
   return `{${entries.map(([k, v]) => `${JSON.stringify(k)}:${stableStringify(v)}`).join(',')}}`
 }
 
-// Product rule: a quiz must be finishable in UNDER one hour. timeLimit is
-// expressed in whole minutes, so the valid range is 1..59 (or omitted/null).
+/** Maximum quiz duration in minutes. No quiz may exceed this. */
+export const MAX_QUIZ_DURATION_MINUTES = 30
+
+// Product rule: a quiz must be finishable within MAX_QUIZ_DURATION_MINUTES.
+// timeLimit is expressed in whole minutes, so the valid range is 1..MAX (or omitted/null).
 function validateTimeLimit(timeLimit: unknown): string | null {
   if (timeLimit === undefined || timeLimit === null) return null
   const n = Number(timeLimit)
-  if (!Number.isFinite(n) || !Number.isInteger(n) || n < 1 || n >= 60) {
-    return 'Quiz time limit must be between 1 and 59 minutes (below 1 hour)'
+  if (!Number.isFinite(n) || !Number.isInteger(n) || n < 1 || n > MAX_QUIZ_DURATION_MINUTES) {
+    return `Quiz duration cannot exceed ${MAX_QUIZ_DURATION_MINUTES} minutes.`
   }
   return null
 }
