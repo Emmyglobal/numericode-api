@@ -72,6 +72,7 @@ beforeEach(async () => {
     await cleanupGeneratedUsers()
     await Promise.all([
       ensureFixtureUser('Emmanuel Nwafor', 'emmanuel@numerycode.com', 'admin', 'active', true),
+      ensureFixtureUser('Trainer One', 'trainer@numerycode.com', 'trainer', 'active', true),
       ensureFixtureUser('Chidi Obi', 'chidi@gmail.com', 'student', 'active', true),
       ensureFixtureUser('Emeka Nwosu', 'emeka@gmail.com', 'student', 'suspended', true),
     ])
@@ -88,7 +89,7 @@ beforeEach(async () => {
 beforeAll(async () => {
   try {
     await cleanupGeneratedUsers()
-            await Promise.all([
+    await Promise.all([
       ensureFixtureUser('Emmanuel Nwafor', 'emmanuel@numerycode.com', 'admin', 'active', true),
       ensureFixtureUser('Chidi Obi', 'chidi@gmail.com', 'student', 'active', true),
       ensureFixtureUser('Emeka Nwosu', 'emeka@gmail.com', 'student', 'suspended', true),

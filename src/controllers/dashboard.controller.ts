@@ -333,8 +333,9 @@ export async function completeLesson(req: Request, res: Response, next: NextFunc
     const lessonId = req.params.lessonId
 
     // Verify the lesson exists and user is enrolled in the course
+    // (lessons have no course_id column — resolve it through modules)
     const { rows: lessonRows } = await query<{ course_id: string }>(
-      `SELECT l.course_id FROM lessons l
+      `SELECT m.course_id FROM lessons l
        JOIN modules m ON m.id = l.module_id
        JOIN enrollments e ON e.course_id = m.course_id
        WHERE l.id = $1 AND e.user_id = $2`,

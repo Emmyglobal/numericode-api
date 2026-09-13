@@ -30,6 +30,8 @@ export interface AssignmentQuestion {
   type: 'theory' | 'subjective' | 'file'
   title: string
   marks: number
+  rubric?: Record<string, number>
+  modelAnswer?: string
 }
 
 export interface AssignmentData {

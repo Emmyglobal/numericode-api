@@ -18,6 +18,7 @@ const app = createApp()
 let studentToken: string
 let trainerToken: string
 let studentId: string
+let trainerId: string
 const createdQuizIds: string[] = []
 const createdCourseIds: string[] = []
 
@@ -25,13 +26,13 @@ function auth(token: string) {
   return { Authorization: `Bearer ${token}` }
 }
 async function createQuizCourse() {
+  // Use the logged-in trainer's own id as instructor so ownership checks pass.
   const { rows } = await query<{ id: string }>(
     `INSERT INTO courses (title, description, subject, level, instructor_id, status, outcomes, access_level, price_cents, currency, premium_enabled)
-     VALUES ($1, 'Phase 20 quiz test course', 'mathematics', 'beginner',
-             (SELECT id FROM users WHERE role = 'trainer' ORDER BY created_at LIMIT 1),
+     VALUES ($1, 'Phase 20 quiz test course', 'mathematics', 'beginner', $2,
              'published', ARRAY[]::text[], 'free', 0, 'NGN', FALSE)
      RETURNING id`,
-    [`Phase20 Quiz Course ${Date.now()}-${Math.random().toString(36).slice(2, 7)}`]
+    [`Phase20 Quiz Course ${Date.now()}-${Math.random().toString(36).slice(2, 7)}`, trainerId]
   )
   createdCourseIds.push(rows[0].id)
   return rows[0].id
@@ -87,6 +88,8 @@ beforeAll(async () => {
   trainerToken = trainer.body.data.token
   const me = await request(app).get('/api/profile').set(auth(studentToken))
   studentId = me.body.data.id
+  const trainerMe = await request(app).get('/api/trainer/profile').set(auth(trainerToken))
+  trainerId = trainerMe.body.data.id
 })
 
 afterAll(async () => {
@@ -342,15 +345,17 @@ it('ignores client-supplied score/passed and grades server-side only', async () 
   })
 })
 
-describe('quizzes: timing (< 1hr) and marked corrections', () => {
-  it('400 — quiz time limit must be BELOW 1 hour (60+ minutes rejected)', async () => {
+describe('quizzes: timing (max 30 minutes) and marked corrections', () => {
+  it('400 — quiz time limit must be 30 minutes or less (longer rejected)', async () => {
     const courseId = await createQuizCourse()
-    const res = await request(app).post('/api/quizzes/quizzes').set(auth(trainerToken)).send({
-      courseId, title: `Phase20 TooLong ${Date.now()}`, timeLimit: 60,
-      questions: [],
-    })
-    expect(res.status).toBe(400)
-    expect(res.body.message).toContain('below 1 hour')
+    for (const tooLong of [31, 60]) {
+      const res = await request(app).post('/api/quizzes/quizzes').set(auth(trainerToken)).send({
+        courseId, title: `Phase20 TooLong ${Date.now()}-${tooLong}`, timeLimit: tooLong,
+        questions: [],
+      })
+      expect(res.status).toBe(400)
+      expect(res.body.message).toContain('cannot exceed 30 minutes')
+    }
   })
 
   it('400 — fractional / non-positive time limits are rejected', async () => {
@@ -363,13 +368,13 @@ describe('quizzes: timing (< 1hr) and marked corrections', () => {
     }
   })
 
-  it('201 — a sub-1-hour time limit (e.g. 45 min) is accepted', async () => {
+  it('201 — a 30-minute time limit (the maximum) is accepted', async () => {
     const courseId = await createQuizCourse()
     const res = await request(app).post('/api/quizzes/quizzes').set(auth(trainerToken)).send({
-      courseId, title: `Phase20 OkLimit ${Date.now()}`, timeLimit: 45,
+      courseId, title: `Phase20 OkLimit ${Date.now()}`, timeLimit: 30,
     })
     expect(res.status).toBe(201)
-    expect(res.body.data.timeLimit).toBe(45)
+    expect(res.body.data.timeLimit).toBe(30)
     createdQuizIds.push(res.body.data.id)
   })
 
@@ -421,13 +426,13 @@ describe('quizzes: timing (< 1hr) and marked corrections', () => {
     const courseId = await createQuizCourse()
     await enrollStudent(courseId)
     const { quiz } = await createQuizOnCourse(courseId, 'Phase20 Expired Attempt')
-    // Manually backdate the open attempt beyond the (below-1hr) window.
+        // Manually backdate the open attempt beyond the 30-minute window + 60s grace.
     await request(app).post(`/api/quizzes/quizzes/${quiz.id}/start`).set(auth(studentToken))
     await query(
-      `UPDATE quiz_attempts SET started_at = NOW() - INTERVAL '61 minutes' WHERE quiz_id = $1 AND user_id = $2 AND completed_at IS NULL`,
+            `UPDATE quiz_attempts SET started_at = NOW() - INTERVAL '35 minutes' WHERE quiz_id = $1 AND user_id = $2 AND completed_at IS NULL`,
       [quiz.id, studentId]
     )
-    // Give the quiz a time limit below 1hr so the window applies.
+    // Give the quiz a valid (max) 30-minute time limit so the window applies.
     await query('UPDATE quizzes SET time_limit = 30 WHERE id = $1', [quiz.id])
 
     const { rows: qRows } = await query<{ id: string }>(

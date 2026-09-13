@@ -1,6 +1,7 @@
-import { describe, it, expect, beforeAll } from 'vitest'
+import { describe, it, expect, beforeAll, afterAll } from 'vitest'
 import request from 'supertest'
 import { createApp } from '../app'
+import { query } from '../db/pool'
 
 const app = createApp()
 let trainerToken: string
@@ -14,6 +15,14 @@ beforeAll(async () => {
 
   const admin = await request(app).post('/api/auth/login').send({ email: 'emmanuel@numerycode.com', password: 'password123' })
   adminToken = admin.body.data.token
+})
+
+afterAll(async () => {
+  // The second-trainer email domain is exempt from the global @example.com
+  // cleanup (to avoid the parallel-file race), so remove those own records here.
+  try {
+    await query(`DELETE FROM users WHERE email LIKE '%@numerycode-test.local'`)
+  } catch { /* cleanup is best-effort */ }
 })
 
 describe('Trainer Course CRUD', () => {
@@ -112,8 +121,12 @@ describe('Trainer Course CRUD', () => {
   })
 
   it('a second trainer cannot edit the first trainer\'s course', async () => {
-    // Register + approve a second trainer
-    const email = `second-trainer-${Date.now()}@example.com`
+    // Register + approve a second trainer.
+    // NOTE: the email domain deliberately avoids "@example.com" — the global
+    // test cleanup (src/test/setup.ts) deletes every user with that domain in
+    // each beforeAll/beforeEach, so a parallel test file's cleanup could delete
+    // this freshly-registered user before the admin lookup below (race).
+    const email = `second-trainer-${Date.now()}@numerycode-test.local`
     await request(app).post('/api/auth/register').send({
       name: 'Second Trainer',
       email,

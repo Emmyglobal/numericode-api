@@ -125,7 +125,7 @@ Expected scaffold lines (copy exactly):
   },
   assignment: {
     title: "Assignment P1.1 — First Python Script",
-    description: "Write a program that stores a product name (string), its price (number), and how many were sold (an integer), then prints them with labels and computes revenue = price * sold. Good: clear variable names, three print statements with labels, correct revenue value; rubric: 5 correct variables, 9 labels+output, 6 revenue calculation = 20.",
+    description: "Write a program that stores a product name (string), its price (number), and how many were sold (an integer), then prints them with labels, compute the Revenue. (Revenue = price * sold).",
     dueDate: "2026-07-06T23:59:59Z",
     totalMarks: 20,
     passingScore: 10,

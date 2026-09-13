@@ -316,14 +316,14 @@ describe('payments: initialization and verification', () => {
     expect(res.status).toBe(404)
   })
 
-  it('409 — cannot re-initiate for a course already paid', async () => {
+  it('409 — cannot re-initiate for a course with verified payment (already has access)', async () => {
     const course = await createCourse()
     const first = await request(app).post('/api/payments/initiate').set(auth()).send({ courseId: course.id })
     expect(first.status).toBe(201)
     await query(`UPDATE payments SET status = 'verified' WHERE reference = $1`, [first.body.data.reference])
     const second = await request(app).post('/api/payments/initiate').set(auth()).send({ courseId: course.id })
     expect(second.status).toBe(409)
-    expect(second.body.message).toMatch(/already paid/i)
+    expect(second.body.message).toMatch(/already have access/i)
   })
 })
 

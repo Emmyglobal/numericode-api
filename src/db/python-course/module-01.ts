@@ -182,18 +182,44 @@ Expected scaffold lines (copy exactly):
       { id: 'q5', questionText: 'Evaluate: True or (False and False)', questionType: 'multiple_choice', options: [{ id: 'a', text: 'True', isCorrect: true }, { id: 'b', text: 'False', isCorrect: false }, { id: 'c', text: '0', isCorrect: false }, { id: 'd', text: 'None', isCorrect: false }], correctAnswer: 'a' },
     ],
   },
-  assignment: {
-    title: 'Assignment P1.2 — Types & Operators',
-    description: 'Write a small program computing the final price after a percentage discount, then describe each type involved. Good: correct discounted total, correct types named, readable output; rubric: 6 discount calc, 4 output formatting, 5 types named, 5 explanation = 20.',
-    dueDate: '2026-07-07T23:59:59Z',
-    totalMarks: 20,
-    passingScore: 10,
-    assignmentType: 'mixed',
-    questions: [
-      { id: 'q1', type: 'theory', title: 'Given original_price = 80 and discount_pct = 25, compute the discounted price and print a labeled message. Show the calculation line and the print line.', marks: 10 },
-      { id: 'q2', type: 'subjective', title: 'Name the Python type (int, float, str, or bool) of each of these values: original_price, 80, discount_pct, 25.', marks: 10 },
-    ],
-  },
+  "assignment": {
+    "title": "Python Fundamentals — Practical Coding Task",
+    "description": "Write a small Python program that stores information about a person, works with a list of scores, and prints results to the screen. Then name the Python types of the values used. Good: correct variable creation, correct use of built-in functions, readable output, correct type identification; rubric: variable creation 2, printing variables 2, list creation 1, average calc 1, string slicing 1, type() 1, len() 1, max() 1 = 10; types named 5, explanation 5 = 10. Total = 20.",
+    "dueDate": "2026-07-07T23:59:59Z",
+    "totalMarks": 20,
+    "passingScore": 10,
+    "assignmentType": "mixed",
+    "questions": [
+      {
+        "id": "q1",
+        "type": "theory",
+        "title": "Scenario: You are asked to write a small Python program that stores some information about a person, works with a list of scores, and prints results to the screen.\n\nTasks:\n\na) Create a variable called name and assign it the string value \"Emmanuel\".\n\nb) Create a variable called age and assign it the integer value 34.\n\nc) Create a variable called is_learning_machine_learning and assign it the boolean value True.\n\nd) Print each of the three variables (name, age, is_learning_machine_learning) on its own line.\n\ne) Create a list called scores containing the following numbers: 23, 45, 22, 12, 45.\n\nf) Calculate the average of the scores list using sum() and len(), and store the result in a variable called average. Then print average.\n\ng) Print the string \"Hello World\" reversed using slicing (do not type it backwards manually).\n\nh) Print the data type of the variable name using the type() function.\n\ni) Print the number of items in the scores list.\n\nj) Print the highest score in the scores list.",
+        "marks": 10,
+        "rubric": {
+          "variableCreation": 2,
+          "printingVariables": 2,
+          "listCreation": 1,
+          "averageCalc": 1,
+          "stringSlicing": 1,
+          "typeFunction": 1,
+          "lenFunction": 1,
+          "maxFunction": 1
+        },
+        "modelAnswer": "name = \"Emmanuel\"\nage = 34\nis_learning_machine_learning = True\n\nprint(name)\nprint(age)\nprint(is_learning_machine_learning)\n\nscores = [23, 45, 22, 12, 45]\naverage = sum(scores) / len(scores)\nprint(average)\n\nprint(\"Hello World\"[::-1])\nprint(type(name))\nprint(len(scores))\nprint(max(scores))\n\n# Expected Output:\n# Emmanuel\n# 34\n# True\n# 29.4\n# dlroW olleH\n# <class 'str'>\n# 5\n# 45"
+      },
+      {
+        "id": "q2",
+        "type": "subjective",
+        "title": "Name the Python type (int, float, str, or bool) of each of these values: original_price, 80, discount_pct, 25.",
+        "marks": 10,
+        "rubric": {
+          "typesNamed": 5,
+          "explanation": 5
+        },
+        "modelAnswer": "original_price → int (it is assigned a whole number, 80)\n80 → int (whole number literal with no decimal point)\ndiscount_pct → int (it is assigned a whole number, 25)\n25 → int (whole number literal with no decimal point)\n\nAll four values are integers because they are whole numbers with no decimal point. Python stores whole numbers as int by default."
+      }
+    ]
+  }
 })
 
 lessons.push({

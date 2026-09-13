@@ -72,6 +72,24 @@ function validateTimeLimit(timeLimit: unknown): string | null {
   return null
 }
 
+const isAdmin = (req: Request) => req.user!.role === 'admin'
+
+/**
+ * Trainer course-ownership guard (mirrors course-content.controller.ts):
+ * a trainer may only manage quizzes on courses they instruct; admins bypass.
+ * Returns 'missing' when the quiz does not exist, 'forbidden' when the
+ * authenticated user does not own the quiz's course, null when allowed.
+ */
+async function ensureQuizOwnership(req: Request, quizId: string): Promise<'missing' | 'forbidden' | null> {
+  const { rows } = await query<{ instructor_id: string }>(
+    `SELECT c.instructor_id FROM quizzes q JOIN courses c ON c.id = q.course_id WHERE q.id = $1`,
+    [quizId]
+  )
+  if (!rows[0]) return 'missing'
+  if (!isAdmin(req) && rows[0].instructor_id !== req.user!.userId) return 'forbidden'
+  return null
+}
+
 // ─── Quiz CRUD ───────────────────────────────────────────────────────────────
 
 export async function listQuizzes(req: Request, res: Response, next: NextFunction) {
@@ -117,8 +135,9 @@ export async function listLessonQuizzes(req: Request, res: Response, next: NextF
     const lessonId = req.params.lessonId
 
     // Look up the course_id for the lesson to check enrollment
+    // (lessons have no course_id column — resolve it through modules)
     const { rows: lessonRows } = await query<{ course_id: string }>(
-      'SELECT course_id FROM lessons WHERE id = $1',
+      `SELECT m.course_id FROM lessons l JOIN modules m ON m.id = l.module_id WHERE l.id = $1`,
       [lessonId]
     )
 
@@ -212,7 +231,16 @@ export async function createQuiz(req: Request, res: Response, next: NextFunction
     }
     
     if (!courseId || !title) return fail(res, 'Course ID and title are required', 400)
-    // Product rule: quizzes must be completable in under 1 hour.
+    // Ownership: a trainer may only create quizzes for courses they instruct.
+    const { rows: courseRows } = await query<{ instructor_id: string }>(
+      'SELECT instructor_id FROM courses WHERE id = $1',
+      [courseId]
+    )
+    if (!courseRows[0]) return notFound(res, 'Course not found')
+    if (!isAdmin(req) && courseRows[0].instructor_id !== req.user!.userId) {
+      return forbidden(res, 'You can only create quizzes for your own courses')
+    }
+    // Product rule: no quiz may exceed MAX_QUIZ_DURATION_MINUTES (30).
     const timeLimitError = validateTimeLimit(timeLimit)
     if (timeLimitError) return fail(res, timeLimitError, 400)
     
@@ -268,11 +296,16 @@ export async function createQuiz(req: Request, res: Response, next: NextFunction
 
 export async function updateQuiz(req: Request, res: Response, next: NextFunction) {
   try {
+    // Ownership: a trainer may only edit quizzes on courses they instruct.
+    const ownership = await ensureQuizOwnership(req, String(req.params.id))
+    if (ownership === 'missing') return notFound(res, 'Quiz not found')
+    if (ownership === 'forbidden') return forbidden(res, 'You can only edit quizzes on your own courses')
+
     const { title, description, timeLimit, passingScore, maxAttempts, shuffleQuestions, showResults } = req.body as {
       title?: string; description?: string; timeLimit?: number; passingScore?: number; maxAttempts?: number; shuffleQuestions?: boolean; showResults?: boolean
     }
     
-    // Product rule: quizzes must be completable in under 1 hour.
+    // Product rule: no quiz may exceed MAX_QUIZ_DURATION_MINUTES (30).
     const timeLimitError = validateTimeLimit(timeLimit)
     if (timeLimitError) return fail(res, timeLimitError, 400)
     const { rows: [quiz] } = await query<QuizRow>(
@@ -298,6 +331,11 @@ export async function updateQuiz(req: Request, res: Response, next: NextFunction
 
 export async function deleteQuiz(req: Request, res: Response, next: NextFunction) {
   try {
+    // Ownership: a trainer may only delete quizzes on courses they instruct.
+    const ownership = await ensureQuizOwnership(req, String(req.params.id))
+    if (ownership === 'missing') return notFound(res, 'Quiz not found')
+    if (ownership === 'forbidden') return forbidden(res, 'You can only delete quizzes on your own courses')
+
     const { rows } = await query('DELETE FROM quizzes WHERE id = $1 RETURNING id', [req.params.id])
     if (!rows[0]) return notFound(res, 'Quiz not found')
     return ok(res, { deleted: true })
@@ -311,6 +349,11 @@ export async function addQuestion(req: Request, res: Response, next: NextFunctio
     const { questionText, questionType, options, correctAnswer, points, position } = req.body as {
       questionText: string; questionType: string; options?: unknown; correctAnswer?: string; points: number; position: number
     }
+
+    // Ownership: a trainer may only add questions to quizzes on their own courses.
+    const ownership = await ensureQuizOwnership(req, String(req.params.quizId))
+    if (ownership === 'missing') return notFound(res, 'Quiz not found')
+    if (ownership === 'forbidden') return forbidden(res, 'You can only manage quizzes on your own courses')
     
     if (questionType === 'multiple_choice') {
       const v = validateSingleChoiceOptions(options, correctAnswer)
@@ -336,6 +379,11 @@ export async function updateQuestion(req: Request, res: Response, next: NextFunc
     const { questionText, questionType, options, correctAnswer, points, position } = req.body as {
       questionText?: string; questionType?: string; options?: unknown; correctAnswer?: string; points?: number; position?: number
     }
+
+    // Ownership: a trainer may only update questions on quizzes on their own courses.
+    const ownership = await ensureQuizOwnership(req, String(req.params.quizId))
+    if (ownership === 'missing') return notFound(res, 'Quiz not found')
+    if (ownership === 'forbidden') return forbidden(res, 'You can only manage quizzes on your own courses')
 
     // Fetch existing question to decide whether validation is needed and to provide defaults
     const { rows: [existing] } = await query('SELECT question_type, options, correct_answer FROM quiz_questions WHERE id = $1 AND quiz_id = $2', [req.params.questionId, req.params.quizId])
@@ -372,6 +420,11 @@ export async function updateQuestion(req: Request, res: Response, next: NextFunc
 
 export async function deleteQuestion(req: Request, res: Response, next: NextFunction) {
   try {
+    // Ownership: a trainer may only delete questions on quizzes on their own courses.
+    const ownership = await ensureQuizOwnership(req, String(req.params.quizId))
+    if (ownership === 'missing') return notFound(res, 'Quiz not found')
+    if (ownership === 'forbidden') return forbidden(res, 'You can only manage quizzes on your own courses')
+
     const { rows } = await query('DELETE FROM quiz_questions WHERE id = $1 AND quiz_id = $2 RETURNING id', [req.params.questionId, req.params.quizId])
     if (!rows[0]) return notFound(res, 'Question not found')
     return ok(res, { deleted: true })
@@ -508,7 +561,7 @@ export async function submitQuizAttempt(req: Request, res: Response, next: NextF
     // ── Timing enforcement ──────────────────────────────────────────────────
     // An attempt whose server-side started_at is older than the quiz time limit
     // (plus a 60s network grace) can no longer be graded. The limit itself is
-    // capped below 1 hour by validateTimeLimit at create/update time.
+    // capped at MAX_QUIZ_DURATION_MINUTES (30) by validateTimeLimit at create/update time.
     const { rows: openRows } = await query<AttemptRow>(
       'SELECT * FROM quiz_attempts WHERE quiz_id = $1 AND user_id = $2 AND completed_at IS NULL ORDER BY started_at DESC LIMIT 1',
       [quizId, userId]
