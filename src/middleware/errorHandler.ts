@@ -9,11 +9,12 @@ export function errorHandler(err: unknown, _req: Request, res: Response, _next: 
     return fail(res, 'A record with this value already exists', 409)
   }
 
-  // ⚠️ TEMPORARY DIAGNOSTIC (2026-08-14) — surface the real error message in the
-  // API response so the DB 500 cause is visible via curl. The error handler
-  // previously masked it as "Internal server error" in production. REVERT this
-  // to the masked message once the root cause is fixed and verified.
-  const message = err instanceof Error
+  // ⚠️ TEMPORARY DIAGNOSTIC (2026-08-14) — production-safe scope note: internal error
+  // text (SQL syntax errors, driver messages, schema names) is returned only
+  // when NODE_ENV !== 'production'. The full error is always logged above via
+  // console.error, and production clients receive the masked message.
+  const isProduction = process.env.NODE_ENV === 'production'
+  const detail = err instanceof Error
     ? err.message
     : typeof err === 'string'
       ? err
@@ -23,7 +24,10 @@ export function errorHandler(err: unknown, _req: Request, res: Response, _next: 
       ? (err as { code?: unknown }).code
       : undefined
 
-  return fail(res, code !== undefined ? `${message} (code=${String(code)})` : message, 500)
+  // Production MUST never leak internal error text to API clients.
+  if (isProduction) return fail(res, 'Internal server error', 500)
+
+  return fail(res, code !== undefined ? `${detail} (code=${String(code)})` : detail, 500)
 }
 
 export function notFoundHandler(_req: Request, res: Response) {

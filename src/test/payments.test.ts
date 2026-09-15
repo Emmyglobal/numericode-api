@@ -87,8 +87,19 @@ beforeAll(async () => {
 })
 
 afterAll(async () => {
+  // Test-hygiene (repeatability): paystack.service is mocked, so the DB is the
+  // only shared state. Course titles are unique, but payment rows reuse FIXED
+  // provider_transaction_id values (4099260516, …) while the payments table has a
+  // UNIQUE index on provider_reference (payments_provider_reference_key). Leftover
+  // 'verified' rows from a prior run collide on the next run, surfacing as an
+  // unhandled 23505 → errorHandler 409 ("A record with this value already exists")
+  // on the verify path. Delete payments + enrollments for every course this file
+  // created, then the courses themselves.
   if (createdCourseIds.length > 0) {
-    await query('DELETE FROM courses WHERE id = ANY($1::uuid[])', [createdCourseIds])
+    const ids = createdCourseIds
+    await query('DELETE FROM payments WHERE course_id = ANY($1::uuid[])', [ids])
+    await query('DELETE FROM enrollments WHERE course_id = ANY($1::uuid[])', [ids])
+    await query('DELETE FROM courses WHERE id = ANY($1::uuid[])', [ids])
   }
 })
 
