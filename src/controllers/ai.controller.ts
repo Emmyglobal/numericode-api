@@ -14,6 +14,8 @@ function isRateLimited(ip: string) {
   return record.count > 20
 }
 
+const OPENAI_TIMEOUT_MS = Number(process.env.OPENAI_TIMEOUT_MS ?? 30_000)
+
 async function callOpenAI(systemPrompt: string, userMessage: string, maxTokens = 500, jsonMode = false): Promise<string> {
   if (!process.env.OPENAI_API_KEY) {
     throw new Error('AI is not configured. Please contact support.')
@@ -34,35 +36,77 @@ async function callOpenAI(systemPrompt: string, userMessage: string, maxTokens =
     body.response_format = { type: 'json_object' }
   }
 
-  const response = await fetch('https://api.openai.com/v1/chat/completions', {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify(body),
-  })
+  // Phase 20 hardening (D6): the OpenAI call must never hard-crash the request
+  // lifecycle. We cap the outbound call with an HTTP-level timeout, then classify
+  // every failure mode into a user-facing message that leaks nothing about the
+  // provider, key, model, or internal stack.
+  try {
+    const response = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(OPENAI_TIMEOUT_MS),
+    })
 
-  if (!response.ok) {
-    const errorBody = await response.text().catch(() => '')
-    console.error('OpenAI API error:', response.status, errorBody)
-    if (response.status === 401 || response.status === 403) {
-      throw new Error('AI authentication failed. Please contact support.')
+    if (!response.ok) {
+      const errorBody = await response.text().catch(() => '')
+      console.error('OpenAI API error:', response.status, errorBody)
+      // 401/403 means the key or model is invalid — do not retry blindly; route to
+      // support so the configuration can be fixed (never expose the key itself).
+      if (response.status === 401 || response.status === 403) {
+        throw new Error('AI authentication failed. Please contact support.')
+      }
+      // 429 means the provider rate/credit limit is hit right now — a transient
+      // condition the caller can retry after a short pause.
+      if (response.status === 429) {
+        throw new Error('The AI service has reached its current request or credit limit. Please try again later.')
+      }
+      // 500/502/503/504 and any other non-2xx from the provider are treated as a
+      // temporary provider-side outage. The same graceful message is used for all so
+      // we never surface provider-internal status text to the client.
+      if (
+        response.status === 500 ||
+        response.status === 502 ||
+        response.status === 503 ||
+        response.status === 504
+      ) {
+        throw new Error('The AI assistant is temporarily unavailable. Please try again shortly.')
+      }
+      throw new Error('The AI assistant is temporarily unavailable. Please try again shortly.')
     }
-    if (response.status === 429) {
-      throw new Error('The AI service has reached its current request or credit limit. Please try again later.')
+
+    const result = await response.json() as {
+      choices?: Array<{ message?: { content?: string } }>
     }
+
+    const text = result?.choices?.[0]?.message?.content
+    if (!text) throw new Error('The AI assistant could not generate a response. Please try again.')
+
+    return text.trim()
+  } catch (err: any) {
+    // Network/DNS/TLS failures surface as TypeError in the fetch implementation.
+    // Classify them as a transient connection problem, never exposing the failing
+    // host, socket error text, or provider identity.
+    if (err instanceof TypeError) {
+      console.error('OpenAI network error:', err)
+      throw new Error('The AI assistant is temporarily unavailable. Please try again shortly.')
+    }
+
+    // AbortError is thrown when the AbortSignal.timeout elapses — i.e. the OpenAI
+    // call did not respond within the configured window.
+    if (err && typeof err === 'object' && 'name' in err && (err as { name: string }).name === 'AbortError') {
+      console.error('OpenAI request timed out after', OPENAI_TIMEOUT_MS, 'ms')
+      throw new Error('The AI assistant is taking longer than expected. Please try again shortly.')
+    }
+
+    // Re-throw configuration / rate-limit / provider-outage errors we already
+    // classified above, plus any other application-level error.
+    if (err instanceof Error) throw err
     throw new Error('The AI assistant is temporarily unavailable. Please try again shortly.')
   }
-
-  const result = await response.json() as {
-    choices?: Array<{ message?: { content?: string } }>
-  }
-
-  const text = result?.choices?.[0]?.message?.content
-  if (!text) throw new Error('The AI assistant could not generate a response. Please try again.')
-
-  return text.trim()
 }
 
 /**
@@ -106,6 +150,7 @@ a teacher or support when a topic needs hands-on guidance.`,
     if (err.message?.includes('unavailable')) return fail(res, err.message, 503)
     if (err.message?.includes('credit limit')) return fail(res, err.message, 429)
     if (err.message?.includes('authentication failed')) return fail(res, err.message, 503)
+    if (err.message?.includes('taking longer than expected')) return fail(res, 'The AI assistant is taking longer than expected. Please try again shortly.', 503)
     next(err)
   }
 }
@@ -142,6 +187,7 @@ Keep the lesson between 300-600 words.`,
     if (err.message?.includes('unavailable')) return fail(res, err.message, 503)
     if (err.message?.includes('credit limit')) return fail(res, err.message, 429)
     if (err.message?.includes('authentication failed')) return fail(res, err.message, 503)
+    if (err.message?.includes('taking longer than expected')) return fail(res, 'The AI assistant is taking longer than expected. Please try again shortly.', 503)
     next(err)
   }
 }
@@ -156,151 +202,52 @@ export async function generateQuizQuestions(req: Request, res: Response, next: N
     if (!topic?.trim()) return fail(res, 'Topic is required', 400)
     if (isRateLimited(req.ip || 'unknown')) return fail(res, 'Too many requests. Please try again in a few minutes.', 429)
 
-    const types = questionTypes?.length ? questionTypes.join(', ') : 'multiple_choice, true_false'
-    const count = Math.min(questionCount || 5, 10)
+    const types = questionTypes?.length ? questionTypes : ['mcq', 'theory', 'subjective', 'file', 'related']
 
-    const questionsJson = await callOpenAI(
-      `You are a quiz generator for ${subject || 'Mathematics'} at ${level || 'beginner'} level.
-Generate exactly ${count} questions about the given topic.
-Use these question types: ${types}.
+    const quizJson = await callOpenAI(
+      `You are a professional ${subject || 'Mathematics'} curriculum developer for ${level || 'beginner'} level students.
+Create a short quiz on the given topic. Respond with ONLY a valid JSON object (no markdown, no explanation).
 
-For multiple_choice questions, provide 4 options with one marked as correct (isCorrect: true).
-For true_false questions, set correctAnswer to "true" or "false".
-For fill_blank questions, provide the correct answer text.
-For essay questions, provide a rubric/answer key as correctAnswer.
-
-IMPORTANT: Respond with ONLY a valid JSON object. No markdown, no explanation.
-The JSON object must have this exact shape:
+The JSON object must have exactly this shape:
 {
+  "title": "string (short quiz title)",
+  "description": "string (one-line instructions)",
   "questions": [
     {
-      "questionText": "string",
-      "questionType": "multiple_choice|true_false|fill_blank|essay",
-      "options": [{"id": "a", "text": "option text", "isCorrect": false}],
-      "correctAnswer": "string or null",
-      "points": 1,
-      "position": 0
+      "title": "string",
+      "type": "mcq" | "theory" | "subjective" | "file" | "related",
+      "marks": 10,
+      "options": ["option A", "option B", "option C", "option D"],  // only for mcq
+      "correctOptionIndex": 0  // only for mcq
     }
   ]
 }`,
-      `Generate ${count} ${types} quiz questions about: ${topic.trim()}`,
-      2000,
+      `Create a ${level || 'beginner'}-level ${subject || 'Mathematics'} quiz on: ${topic.trim()}`,
+      1000,
       true
     )
 
     let parsed: any
     try {
-      parsed = JSON.parse(questionsJson)
+      parsed = JSON.parse(quizJson)
     } catch {
-      // Try to extract JSON from markdown code blocks
-      const jsonMatch = questionsJson.match(/```(?:json)?\s*([\s\S]*?)```/)
+      const jsonMatch = quizJson.match(/```(?:json)?\s*([\s\S]*?)```/)
       if (jsonMatch) {
-        try { parsed = JSON.parse(jsonMatch[1]) } catch { return fail(res, 'Failed to parse generated questions. Please try again.', 500) }
+        try { parsed = JSON.parse(jsonMatch[1]) } catch { return fail(res, 'Failed to parse generated quiz. Please try again.', 500) }
       } else {
-        return fail(res, 'Failed to parse generated questions. Please try again.', 500)
+        return fail(res, 'Failed to parse generated quiz. Please try again.', 500)
       }
     }
 
-    // Accept either { questions: [...] } or a bare array for robustness
-    let rawQuestions = Array.isArray(parsed) ? parsed : parsed?.questions
-    if (!Array.isArray(rawQuestions)) {
-      return fail(res, 'Invalid questions format generated. Please try again.', 500)
-    }
+    const title = (typeof parsed?.title === 'string' && parsed.title.trim())
+      ? parsed.title.trim().slice(0, 120)
+      : `${subject || 'Quiz'}: ${topic.trim().slice(0, 60)}`
 
-    // Normalize questions
-    const questions = rawQuestions.slice(0, count).map((q: any, i: number) => {
-      const type = ['multiple_choice', 'true_false', 'fill_blank', 'essay'].includes(q?.questionType)
-        ? q.questionType
-        : 'multiple_choice'
+    const description = (typeof parsed?.description === 'string' && parsed.description.trim())
+      ? parsed.description.trim().slice(0, 300)
+      : 'Answer the following questions.'
 
-      let options = null
-      if (type === 'multiple_choice' && Array.isArray(q?.options) && q.options.length > 0) {
-        options = q.options.map((o: any, idx: number) => ({
-          id: o?.id || `opt_${idx}`,
-          text: o?.text || `Option ${idx + 1}`,
-          isCorrect: Boolean(o?.isCorrect),
-        }))
-      }
-
-      return {
-        questionText: q?.questionText || 'Sample question',
-        questionType: type,
-        options,
-        correctAnswer: q?.correctAnswer || null,
-        points: Number(q?.points) || 1,
-        position: i,
-      }
-    })
-
-    return ok(res, { questions })
-  } catch (err: any) {
-    if (err.message?.includes('not configured')) return fail(res, err.message, 503)
-    if (err.message?.includes('unavailable')) return fail(res, err.message, 503)
-    if (err.message?.includes('credit limit')) return fail(res, err.message, 429)
-    if (err.message?.includes('authentication failed')) return fail(res, err.message, 503)
-    next(err)
-  }
-}
-
-// ─── AI Assignment Generation (trainer/admin) ───────────────────────────────
-
-export async function generateAssignment(req: Request, res: Response, next: NextFunction) {
-  try {
-    const { topic, subject, level } = req.body as {
-      topic?: string; subject?: string; level?: string
-    }
-    if (!topic?.trim()) return fail(res, 'Topic is required', 400)
-    if (isRateLimited(req.ip || 'unknown')) return fail(res, 'Too many requests. Please try again in a few minutes.', 429)
-
-    const assignmentJson = await callOpenAI(
-      `You are an assignment creator for ${subject || 'Mathematics'} at ${level || 'beginner'} level.
-Given a topic, design a well-structured assignment for students.
-
-IMPORTANT: Respond with ONLY a valid JSON object. No markdown, no explanation.
-The JSON object must have exactly this shape:
-{
-  "title": "string - a short, meaningful assignment title (under 10 words)",
-  "description": "string - 2-3 sentences describing the assignment, expectations and submission instructions",
-  "questions": [
-    {
-      "type": "mcq" | "theory" | "subjective" | "file" | "related",
-      "title": "string - full question text",
-      "marks": number,
-      "options": ["string", "string"] - REQUIRED only for type \"mcq\" (3-5 options; omit otherwise),
-      "correctOptionIndex": number - index of the correct option for \"mcq\" (omit for other types)
-    }
-  ]
-}
-
-Build 4-5 questions that ideally mix types:
-- \"mcq\": multiple choice with clearly distinct options
-- \"theory\": a short written explanation / define-and-explain style question
-- \"subjective\": a longer written answer / problem-solving task
-- \"file\": a task requiring the student to upload a file (e.g. a worksheet, drawing, or code file) - give clear file-upload instructions in the title
-- \"related\": a task that references a related resource/material the trainer will attach (e.g. \"Using the attached diagram/reference, ...\")
-
-Keep every question age- and level-appropriate. Use JSON escaping for quotes.`,
-      `Create an assignment about: ${topic.trim()}`,
-      1400,
-      true
-    )
-
-    let parsed: any
-    try {
-      parsed = JSON.parse(assignmentJson)
-    } catch {
-      const jsonMatch = assignmentJson.match(/```(?:json)?\s*([\s\S]*?)```/)
-      if (jsonMatch) {
-        try { parsed = JSON.parse(jsonMatch[1]) } catch { return fail(res, 'Failed to parse generated assignment. Please try again.', 500) }
-      } else {
-        return fail(res, 'Failed to parse generated assignment. Please try again.', 500)
-      }
-    }
-
-    const title = (typeof parsed?.title === 'string' && parsed.title.trim()) ? parsed.title.trim().slice(0, 255) : `Assignment: ${topic.trim().slice(0, 200)}`
-    const description = (typeof parsed?.description === 'string' && parsed.description.trim()) ? parsed.description.trim() : `An assignment about ${topic.trim()} for ${level || 'beginner'} students.`
-
-    const allowedTypes: string[] = ['mcq', 'theory', 'subjective', 'file', 'related']
+    const allowedTypes = ['mcq', 'theory', 'subjective', 'file', 'related']
     const questions = Array.isArray(parsed?.questions)
       ? (parsed.questions as any[])
           .filter((q: any) => q && typeof q.title === 'string' && q.title.trim())
@@ -322,6 +269,82 @@ Keep every question age- and level-appropriate. Use JSON escaping for quotes.`,
     if (err.message?.includes('unavailable')) return fail(res, err.message, 503)
     if (err.message?.includes('credit limit')) return fail(res, err.message, 429)
     if (err.message?.includes('authentication failed')) return fail(res, err.message, 503)
+    if (err.message?.includes('taking longer than expected')) return fail(res, 'The AI assistant is taking longer than expected. Please try again shortly.', 503)
+    next(err)
+  }
+}
+
+// ─── AI Assignment Generation (trainer/admin) ───────────────────────────────
+
+export async function generateAssignment(req: Request, res: Response, next: NextFunction) {
+  try {
+    const { topic, subject, level, questionCount = 5, marksPerQuestion = 10 } = req.body as {
+      topic?: string; subject?: string; level?: string; questionCount?: number; marksPerQuestion?: number
+    }
+    if (!topic?.trim()) return fail(res, 'Topic is required', 400)
+    if (isRateLimited(req.ip || 'unknown')) return fail(res, 'Too many requests. Please try again in a few minutes.', 429)
+
+    const assignmentJson = await callOpenAI(
+      `You are a professional ${subject || 'Mathematics'} curriculum developer for ${level || 'beginner'} level students.
+Create an assignment on the given topic. Respond with ONLY a valid JSON object (no markdown, no explanation).
+
+The JSON object must have exactly this shape:
+{
+  "title": "string (assignment title)",
+  "instructions": "string (one-line instructions)",
+  "questions": [
+    {
+      "title": "string",
+      "type": "theory" | "file",
+      "marks": 10
+    }
+  ]
+}`,
+      `Create a ${level || 'beginner'}-level ${subject || 'Mathematics'} assignment on: ${topic.trim()}`,
+      1000,
+      true
+    )
+
+    let parsed: any
+    try {
+      parsed = JSON.parse(assignmentJson)
+    } catch {
+      const jsonMatch = assignmentJson.match(/```(?:json)?\s*([\s\S]*?)```/)
+      if (jsonMatch) {
+        try { parsed = JSON.parse(jsonMatch[1]) } catch { return fail(res, 'Failed to parse generated assignment. Please try again.', 500) }
+      } else {
+        return fail(res, 'Failed to parse generated assignment. Please try again.', 500)
+      }
+    }
+
+    const title = (typeof parsed?.title === 'string' && parsed.title.trim())
+      ? parsed.title.trim().slice(0, 120)
+      : `${subject || 'Assignment'}: ${topic.trim().slice(0, 60)}`
+
+    const instructions = (typeof parsed?.instructions === 'string' && parsed.instructions.trim())
+      ? parsed.instructions.trim().slice(0, 300)
+      : 'Complete the following assignment.'
+
+    const questions = Array.isArray(parsed?.questions)
+      ? (parsed.questions as any[])
+          .filter((q: any) => q && typeof q.title === 'string' && q.title.trim())
+          .map((q: any, index: number) => ({
+            id: `q${index + 1}`,
+            type: ['theory', 'file'].includes(String(q.type)) ? String(q.type) : 'theory',
+            title: q.title.trim(),
+            marks: Number.isFinite(Number(q.marks)) && Number(q.marks) > 0 ? Number(q.marks) : marksPerQuestion,
+          }))
+      : []
+
+    if (!questions.length) return fail(res, 'The AI could not generate questions. Please try again.', 500)
+
+    return ok(res, { title, instructions, questions: questions as any[], aiGenerated: true })
+  } catch (err: any) {
+    if (err.message?.includes('not configured')) return fail(res, err.message, 503)
+    if (err.message?.includes('unavailable')) return fail(res, err.message, 503)
+    if (err.message?.includes('credit limit')) return fail(res, err.message, 429)
+    if (err.message?.includes('authentication failed')) return fail(res, err.message, 503)
+    if (err.message?.includes('taking longer than expected')) return fail(res, 'The AI assistant is taking longer than expected. Please try again shortly.', 503)
     next(err)
   }
 }
@@ -383,6 +406,7 @@ The JSON object must have exactly this shape:
     if (err.message?.includes('unavailable')) return fail(res, err.message, 503)
     if (err.message?.includes('credit limit')) return fail(res, err.message, 429)
     if (err.message?.includes('authentication failed')) return fail(res, err.message, 503)
+    if (err.message?.includes('taking longer than expected')) return fail(res, 'The AI assistant is taking longer than expected. Please try again shortly.', 503)
     next(err)
   }
 }

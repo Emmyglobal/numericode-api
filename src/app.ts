@@ -5,6 +5,8 @@ import helmet from 'helmet'
 import morgan from 'morgan'
 import path from 'path'
 
+import { corsOptions } from './middleware/corsOptions'
+
 import authRoutes         from './routes/auth.routes'
 import coursesRoutes      from './routes/courses.routes'
 import dashboardRoutes    from './routes/dashboard.routes'
@@ -40,12 +42,7 @@ app.use(helmet())
 
 console.log('CLIENT_URL =', process.env.CLIENT_URL)
 
-app.use(
-  cors({
-    origin: true,
-    credentials: true,
-  })
-)
+app.use(cors(corsOptions))
   // The verify callback keeps a copy of the RAW body on every request so the
   // Paystack webhook (HMAC-SHA512 over the raw bytes) can be authenticated.
   app.use(express.json({
