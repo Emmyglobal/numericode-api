@@ -23,6 +23,10 @@ import { createApp } from '../app'
  */
 vi.hoisted(() => {
   process.env.OPENAI_TIMEOUT_MS = '200'
+  // Phase 22B: pin the provider for this regression file. The test environment
+  // loads .env via setup.ts, and AI_PROVIDER must be 'openai' here so the
+  // OpenAI rollback provider (and this file's URL/header assertions) hold.
+  process.env.AI_PROVIDER = 'openai'
   // Fake, obviously-invalid key. The real key (if present in the environment)
   // is deliberately overwritten — tests must never depend on or reveal it.
   process.env.OPENAI_API_KEY = 'sk-test-fake-key-not-real'

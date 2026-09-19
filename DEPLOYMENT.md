@@ -42,6 +42,17 @@ In the API service → **Variables** tab, add:
 | `JWT_SECRET` | Generate a strong random string (see below) |
 | `JWT_EXPIRES_IN` | `7d` |
 | `CLIENT_URL` | `https://your-frontend.vercel.app` (set after frontend is deployed) |
+| `AI_PROVIDER` | `groq` (or `openai` to roll back — leave unset for OpenAI) |
+| `GROQ_API_KEY` | Groq secret key (server-side only) — required when `AI_PROVIDER=groq` |
+| `AI_MODEL` | `openai/gpt-oss-120b` (Groq model) |
+| `AI_BASE_URL` | `https://api.groq.com/openai/v1` |
+| `OPENAI_API_KEY` | Keep set so `AI_PROVIDER=openai` rollback works |
+| `OPENAI_MODEL` | `gpt-4o-mini` |
+| `AI_TIMEOUT_MS` | `30000` |
+
+> AI provider keys are **backend secrets**: never expose them to the frontend, never
+> commit them, and never paste them into logs or support tickets. Only the active
+> provider's key is used — the other provider's key is never sent to it.
 
 `DATABASE_URL` is already injected automatically by the Postgres plugin — do not set it manually.
 

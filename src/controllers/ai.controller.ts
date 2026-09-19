@@ -1,5 +1,6 @@
 import type { Request, Response, NextFunction } from 'express'
 import { fail, ok } from '../utils/response'
+import { callAiProvider, describeAiProvider } from '../services/ai-provider.service'
 
 const requests = new Map<string, { count: number; resetAt: number }>()
 
@@ -14,115 +15,21 @@ function isRateLimited(ip: string) {
   return record.count > 20
 }
 
-const OPENAI_TIMEOUT_MS = Number(process.env.OPENAI_TIMEOUT_MS ?? 30_000)
-
-async function callOpenAI(systemPrompt: string, userMessage: string, maxTokens = 500, jsonMode = false): Promise<string> {
-  if (!process.env.OPENAI_API_KEY) {
-    throw new Error('AI is not configured. Please contact support.')
-  }
-
-  const body: Record<string, unknown> = {
-    model: process.env.OPENAI_MODEL || 'gpt-4o-mini',
-    messages: [
-      { role: 'system', content: systemPrompt },
-      { role: 'user', content: userMessage },
-    ],
-    max_tokens: maxTokens,
-    temperature: 0.7,
-  }
-
-  // Ask the model for a strict JSON object when the app needs to parse the result.
-  if (jsonMode) {
-    body.response_format = { type: 'json_object' }
-  }
-
-  // Phase 20 hardening (D6): the OpenAI call must never hard-crash the request
-  // lifecycle. We cap the outbound call with an HTTP-level timeout, then classify
-  // every failure mode into a user-facing message that leaks nothing about the
-  // provider, key, model, or internal stack.
-  try {
-    const response = await fetch('https://api.openai.com/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(body),
-      signal: AbortSignal.timeout(OPENAI_TIMEOUT_MS),
-    })
-
-    if (!response.ok) {
-      const errorBody = await response.text().catch(() => '')
-      console.error('OpenAI API error:', response.status, errorBody)
-      // 401/403 means the key or model is invalid — do not retry blindly; route to
-      // support so the configuration can be fixed (never expose the key itself).
-      if (response.status === 401 || response.status === 403) {
-        throw new Error('AI authentication failed. Please contact support.')
-      }
-      // 429 means the provider rate/credit limit is hit right now — a transient
-      // condition the caller can retry after a short pause.
-      if (response.status === 429) {
-        throw new Error('The AI service has reached its current request or credit limit. Please try again later.')
-      }
-      // 500/502/503/504 and any other non-2xx from the provider are treated as a
-      // temporary provider-side outage. The same graceful message is used for all so
-      // we never surface provider-internal status text to the client.
-      if (
-        response.status === 500 ||
-        response.status === 502 ||
-        response.status === 503 ||
-        response.status === 504
-      ) {
-        throw new Error('The AI assistant is temporarily unavailable. Please try again shortly.')
-      }
-      throw new Error('The AI assistant is temporarily unavailable. Please try again shortly.')
-    }
-
-    const result = await response.json() as {
-      choices?: Array<{ message?: { content?: string } }>
-    }
-
-    const text = result?.choices?.[0]?.message?.content
-    if (!text) throw new Error('The AI assistant could not generate a response. Please try again.')
-
-    return text.trim()
-  } catch (err: any) {
-    // Network/DNS/TLS failures surface as TypeError in the fetch implementation.
-    // Classify them as a transient connection problem, never exposing the failing
-    // host, socket error text, or provider identity.
-    if (err instanceof TypeError) {
-      console.error('OpenAI network error:', err)
-      throw new Error('The AI assistant is temporarily unavailable. Please try again shortly.')
-    }
-
-    // AbortError is thrown when the AbortSignal.timeout elapses — i.e. the OpenAI
-    // call did not respond within the configured window.
-    if (err && typeof err === 'object' && 'name' in err && (err as { name: string }).name === 'AbortError') {
-      console.error('OpenAI request timed out after', OPENAI_TIMEOUT_MS, 'ms')
-      throw new Error('The AI assistant is taking longer than expected. Please try again shortly.')
-    }
-
-    // Re-throw configuration / rate-limit / provider-outage errors we already
-    // classified above, plus any other application-level error.
-    if (err instanceof Error) throw err
-    throw new Error('The AI assistant is temporarily unavailable. Please try again shortly.')
-  }
-}
-
 /**
  * GET /api/ai/health — reports whether the AI provider is configured.
  * Never exposes secrets. Useful for diagnosing configuration failures.
  */
 export async function aiHealth(_req: Request, res: Response) {
-  const configured = Boolean(process.env.OPENAI_API_KEY)
-  const model = process.env.OPENAI_MODEL || 'gpt-4o-mini'
+  // Phase 22B: report the ACTIVE provider (server-side AI_PROVIDER) and its
+  // configuration state. No secrets, no provider URLs, no AI completion.
+  const status = describeAiProvider()
   return ok(res, {
-    configured,
-    model: configured ? model : null,
-    provider: 'openai',
-    message: configured
+    configured: status.configured,
+    model: status.model,
+    provider: status.provider,
+    message: status.configured
       ? 'AI provider is configured.'
-      : 'AI provider is not configured. Set OPENAI_API_KEY in your environment.',
+      : 'AI provider is not configured. Please contact support.',
   })
 }
 
@@ -132,7 +39,7 @@ export async function studyGuide(req: Request, res: Response, next: NextFunction
     if (!message?.trim() || message.length > 800) return fail(res, 'Enter a question of up to 800 characters', 400)
     if (isRateLimited(req.ip || 'unknown')) return fail(res, 'Too many questions. Please try again in a few minutes.', 429)
 
-    const answer = await callOpenAI(
+    const answer = await callAiProvider(
       `You are NumeryCode Study Guide, a warm, knowledgeable AI assistant for Nigerian parents and students.
 Answer ANY question the user asks — whether it is about Mathematics, Programming, Science, English,
 school subjects, study tips, how NumeryCode works, choosing subjects, live classes, or general learning advice.
@@ -151,6 +58,7 @@ a teacher or support when a topic needs hands-on guidance.`,
     if (err.message?.includes('credit limit')) return fail(res, err.message, 429)
     if (err.message?.includes('authentication failed')) return fail(res, err.message, 503)
     if (err.message?.includes('taking longer than expected')) return fail(res, 'The AI assistant is taking longer than expected. Please try again shortly.', 503)
+    if (err.message?.includes('could not generate')) return fail(res, err.message, 502)
     next(err)
   }
 }
@@ -166,7 +74,7 @@ export async function generateLessonContent(req: Request, res: Response, next: N
 
     if (isRateLimited(req.ip || 'unknown')) return fail(res, 'Too many requests. Please try again in a few minutes.', 429)
 
-    const content = await callOpenAI(
+    const content = await callAiProvider(
       `You are a professional ${subject || 'Mathematics'} curriculum developer for ${level || 'beginner'} level students.
 Create a well-structured lesson on the given topic. The lesson should include:
 1. A clear introduction explaining why this topic matters
@@ -188,6 +96,7 @@ Keep the lesson between 300-600 words.`,
     if (err.message?.includes('credit limit')) return fail(res, err.message, 429)
     if (err.message?.includes('authentication failed')) return fail(res, err.message, 503)
     if (err.message?.includes('taking longer than expected')) return fail(res, 'The AI assistant is taking longer than expected. Please try again shortly.', 503)
+    if (err.message?.includes('could not generate')) return fail(res, err.message, 502)
     next(err)
   }
 }
@@ -204,7 +113,7 @@ export async function generateQuizQuestions(req: Request, res: Response, next: N
 
     const types = questionTypes?.length ? questionTypes : ['mcq', 'theory', 'subjective', 'file', 'related']
 
-    const quizJson = await callOpenAI(
+    const quizJson = await callAiProvider(
       `You are a professional ${subject || 'Mathematics'} curriculum developer for ${level || 'beginner'} level students.
 Create a short quiz on the given topic. Respond with ONLY a valid JSON object (no markdown, no explanation).
 
@@ -270,6 +179,7 @@ The JSON object must have exactly this shape:
     if (err.message?.includes('credit limit')) return fail(res, err.message, 429)
     if (err.message?.includes('authentication failed')) return fail(res, err.message, 503)
     if (err.message?.includes('taking longer than expected')) return fail(res, 'The AI assistant is taking longer than expected. Please try again shortly.', 503)
+    if (err.message?.includes('could not generate')) return fail(res, err.message, 502)
     next(err)
   }
 }
@@ -284,7 +194,7 @@ export async function generateAssignment(req: Request, res: Response, next: Next
     if (!topic?.trim()) return fail(res, 'Topic is required', 400)
     if (isRateLimited(req.ip || 'unknown')) return fail(res, 'Too many requests. Please try again in a few minutes.', 429)
 
-    const assignmentJson = await callOpenAI(
+    const assignmentJson = await callAiProvider(
       `You are a professional ${subject || 'Mathematics'} curriculum developer for ${level || 'beginner'} level students.
 Create an assignment on the given topic. Respond with ONLY a valid JSON object (no markdown, no explanation).
 
@@ -345,6 +255,7 @@ The JSON object must have exactly this shape:
     if (err.message?.includes('credit limit')) return fail(res, err.message, 429)
     if (err.message?.includes('authentication failed')) return fail(res, err.message, 503)
     if (err.message?.includes('taking longer than expected')) return fail(res, 'The AI assistant is taking longer than expected. Please try again shortly.', 503)
+    if (err.message?.includes('could not generate')) return fail(res, err.message, 502)
     next(err)
   }
 }
@@ -359,7 +270,7 @@ export async function generateNote(req: Request, res: Response, next: NextFuncti
     if (!topic?.trim()) return fail(res, 'Topic is required', 400)
     if (isRateLimited(req.ip || 'unknown')) return fail(res, 'Too many requests. Please try again in a few minutes.', 429)
 
-    const noteJson = await callOpenAI(
+    const noteJson = await callAiProvider(
       `You are a concise course-note writer for ${subject || 'Mathematics'} at ${level || 'beginner'} level.
 Write clear, well-organised study notes for students on the given topic. The notes should:
 1. Have a short, meaningful title (aim for under 10 words, no trailing punctuation).
@@ -407,6 +318,7 @@ The JSON object must have exactly this shape:
     if (err.message?.includes('credit limit')) return fail(res, err.message, 429)
     if (err.message?.includes('authentication failed')) return fail(res, err.message, 503)
     if (err.message?.includes('taking longer than expected')) return fail(res, 'The AI assistant is taking longer than expected. Please try again shortly.', 503)
+    if (err.message?.includes('could not generate')) return fail(res, err.message, 502)
     next(err)
   }
 }

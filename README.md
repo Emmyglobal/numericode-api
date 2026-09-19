@@ -209,9 +209,84 @@ DATABASE_URL=postgresql://postgres:password@localhost:5432/numerycode
 JWT_SECRET=your-super-secret-jwt-key-change-in-production
 JWT_EXPIRES_IN=7d
 CLIENT_URL=http://localhost:5173
+AI_PROVIDER=openai          # openai (default/rollback) or groq
+AI_MODEL=gpt-4o-mini        # Groq production value: openai/gpt-oss-120b
+AI_BASE_URL=                # Groq: https://api.groq.com/openai/v1
+AI_TIMEOUT_MS=30000
 OPENAI_API_KEY=your-openai-api-key
 OPENAI_MODEL=gpt-4.1-mini
+GROQ_API_KEY=your-groq-api-key
 ```
+
+---
+
+## AI Providers (OpenAI / Groq)
+
+The AI features (Study Guide, lesson/quiz/assignment/note generators) run through a
+small provider abstraction in `src/services/ai-provider.service.ts`. The controller
+(`src/controllers/ai.controller.ts`) owns validation, authorization, rate limiting,
+prompt construction and response formatting; the provider layer owns the base URL,
+Authorization header, model, token parameter, timeout, response parsing and error
+classification.
+
+| Provider | `AI_PROVIDER` | Required secret | Model variable | Base URL |
+|---|---|---|---|---|
+| OpenAI (default / rollback) | `openai` | `OPENAI_API_KEY` | `OPENAI_MODEL` | `https://api.openai.com/v1` (fixed) |
+| Groq (OpenAI-compatible) | `groq` | `GROQ_API_KEY` | `AI_MODEL` | `AI_BASE_URL` (default `https://api.groq.com/openai/v1`) |
+
+Both providers use the OpenAI-compatible Chat Completions API. Requests are sent with
+`stream: false`; Groq is called with the `max_completion_tokens` parameter (Groq's
+non-deprecated name) while OpenAI keeps `max_tokens`. JSON-mode endpoints send
+`response_format: { type: 'json_object' }` to both.
+
+### Selecting Groq (production configuration)
+
+```bash
+AI_PROVIDER=groq
+GROQ_API_KEY=<server-side secret>
+AI_BASE_URL=https://api.groq.com/openai/v1
+AI_MODEL=openai/gpt-oss-120b
+AI_TIMEOUT_MS=30000
+```
+
+### Rolling back to OpenAI
+
+Rollback is configuration-only — no code change or redeploy of new code is required:
+
+```bash
+AI_PROVIDER=openai
+OPENAI_API_KEY=<server-side secret>
+OPENAI_MODEL=gpt-4o-mini
+```
+
+Leaving `AI_PROVIDER` unset also selects OpenAI, so an environment that never set it
+keeps its existing behaviour.
+
+### Security rules
+
+- Provider API keys are **backend-only**. They are read from server-side environment
+  variables and are placed only in the outbound `Authorization` header. They must
+  never be exposed to the browser, logged, or returned to clients.
+- Provider and model are **never** read from the request body — the browser cannot
+  choose a provider, model or key.
+- Only the **active** provider's key is read. With `AI_PROVIDER=groq`, `OPENAI_API_KEY`
+  is never sent to Groq (and vice versa).
+- `GET /api/ai/health` reports only `configured`, `provider` and `model`. It never
+  performs a completion and never reveals a key, URL or header.
+
+### Endpoint access (unchanged by the provider switch)
+
+| Endpoint | Access |
+|---|---|
+| `POST /api/ai/study-guide` | Public |
+| `GET /api/ai/health` | Public |
+| `POST /api/ai/generate-lesson` | Trainer only (`requireAuth` + `requireRole('trainer')`) |
+| `POST /api/ai/generate-quiz` | Trainer only |
+| `POST /api/ai/generate-assignment` | Trainer only |
+| `POST /api/ai/generate-note` | Trainer only |
+
+Rate limiting is 20 requests / 15 minutes / IP across all AI endpoints, and outbound
+provider calls are capped by `AI_TIMEOUT_MS` (default 30000 ms).
 
 ---
 
