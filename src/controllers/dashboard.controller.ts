@@ -327,6 +327,17 @@ export async function getProfile(req: Request, res: Response, next: NextFunction
 }
 
 
+/**
+ * Human-readable reason returned when a lesson's attached work is still pending.
+ * Mentions only what the student must do — never internal ids or state.
+ */
+function lessonWorkPendingMessage(pendingQuizzes: number, pendingAssignments: number): string {
+  const parts: string[] = []
+  if (pendingQuizzes > 0) parts.push(pendingQuizzes === 1 ? 'the lesson quiz' : 'the lesson quizzes')
+  if (pendingAssignments > 0) parts.push(pendingAssignments === 1 ? 'the lesson assignment' : 'the lesson assignments')
+  return `Submit ${parts.join(' and ')} before marking this lesson complete.`
+}
+
 export async function completeLesson(req: Request, res: Response, next: NextFunction) {
   try {
     const userId = req.user!.userId
@@ -344,6 +355,42 @@ export async function completeLesson(req: Request, res: Response, next: NextFunc
 
     if (!lessonRows[0]) {
       return res.status(404).json({ success: false, message: 'Lesson not found or you are not enrolled in this course' })
+    }
+
+    // Product rule: a lesson is only checked off once the work attached to THAT
+    // lesson has been submitted by this student.
+    //   - quizzes with quizzes.lesson_id = this lesson need a submitted attempt
+    //     (completed_at set) — merely opening a quiz does not count
+    //   - assignments with assignments.lesson_id = this lesson need a submission
+    //     (submitted_at set, or any status beyond 'pending')
+    // Lessons with nothing attached keep the previous behaviour, and course-level
+    // work (lesson_id NULL) never blocks an individual lesson.
+    const { rows: pendingQuizRows } = await query<{ id: string }>(
+      `SELECT q.id FROM quizzes q
+       WHERE q.lesson_id = $1
+         AND NOT EXISTS (
+           SELECT 1 FROM quiz_attempts qa
+           WHERE qa.quiz_id = q.id
+             AND qa.user_id = $2
+             AND qa.completed_at IS NOT NULL
+         )`,
+      [lessonId, userId]
+    )
+
+    const { rows: pendingAssignmentRows } = await query<{ id: string }>(
+      `SELECT a.id FROM assignments a
+       WHERE a.lesson_id = $1
+         AND NOT EXISTS (
+           SELECT 1 FROM submissions s
+           WHERE s.assignment_id = a.id
+             AND s.user_id = $2
+             AND (s.submitted_at IS NOT NULL OR s.status <> 'pending')
+         )`,
+      [lessonId, userId]
+    )
+
+    if (pendingQuizRows.length > 0 || pendingAssignmentRows.length > 0) {
+      return fail(res, lessonWorkPendingMessage(pendingQuizRows.length, pendingAssignmentRows.length), 409)
     }
 
     // Insert lesson completion (ignore if already exists)

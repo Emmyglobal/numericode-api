@@ -290,6 +290,31 @@ provider calls are capped by `AI_TIMEOUT_MS` (default 30000 ms).
 
 ---
 
+## Lesson Completion & Progress Rules
+
+`PUT /api/dashboard/lessons/:lessonId/complete` records a lesson completion only after
+the student has **submitted the work attached to that lesson**:
+
+| Attached to the lesson | Required before the lesson is checked off |
+|---|---|
+| Quiz (`quizzes.lesson_id`) | A submitted quiz attempt (`quiz_attempts.completed_at` set). Starting a quiz is not enough. |
+| Assignment (`assignments.lesson_id`) | A submission (`submissions.submitted_at` set, or status beyond `pending`). |
+| Both | Both must be submitted. |
+| Nothing attached | Completes as before — no gate. |
+
+Blocked requests return **`409`** with a safe message, e.g.
+`Submit the lesson quiz before marking this lesson complete.`, and **nothing is
+written** — no `lesson_completions` row and no progress change.
+
+Scoping: the rule is **per lesson**. Course-level work (`lesson_id NULL`) and work
+attached to *other* lessons never block a lesson. Lessons are only graded for their
+own attachments, and only the authenticated student's own submissions count.
+
+Progress weighting is unchanged (lessons 50% / assignments 30% / quizzes 20%,
+renormalized when a course has no quizzes or assignments).
+
+---
+
 ## Available Scripts
 
 ```bash
