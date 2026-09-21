@@ -1,0 +1,15 @@
+{
+	"folders": [
+		{
+			"path": "../../../../.."
+		},
+		{
+			"path": "../../../../../../../Documents/machine-learning-career"
+		}
+	],
+	"settings": {
+		"chat.tools.terminal.autoApprove": {
+			"npx ts-node": true
+		}
+	}
+}
