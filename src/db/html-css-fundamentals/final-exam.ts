@@ -304,17 +304,19 @@ export const FINAL_EXAM: HcfQuizData = {
 }
 
 // Runtime sanity check (dev/build only).
+// The bank is 53 items by design: 50 Q&A (5 per module for Modules 1-10) followed
+// by 3 practical build problems. Open-ended Q&A items are stored as 'essay' too
+// (see ./types.ts — 'essay' is persisted but never auto-graded), so the practicals
+// are identified by their trailing position rather than by question type alone.
 if (typeof (globalThis as Record<string, unknown>).window === 'undefined') {
-  const mcCount = FINAL_EXAM.questions.filter(q => q.questionType !== 'essay').length
-  const essayCount = FINAL_EXAM.questions.filter(q => q.questionType === 'essay').length
-  if (mcCount !== 50 || essayCount !== 3) {
+  const qaCount = FINAL_EXAM.questions.length - 3
+  const practicalCount = FINAL_EXAM.questions
+    .slice(-3)
+    .filter((q) => q.questionType === 'essay').length
+  if (FINAL_EXAM.questions.length !== 53 || qaCount !== 50 || practicalCount !== 3) {
     throw new Error(
-      `Final exam question bank mismatch: expected 50 MCQ/TF/fb + 3 essay, got ${mcCount} + ${essayCount}`,
-    )
-  }
-  if (FINAL_EXAM.questions.length !== 53) {
-    throw new Error(
-      `Final exam total mismatch: expected 53 questions, got ${FINAL_EXAM.questions.length}`,
+      `Final exam question bank mismatch: expected 53 items (50 Q&A + 3 practicals), ` +
+        `got ${FINAL_EXAM.questions.length} (${qaCount} Q&A + ${practicalCount} practicals)`,
     )
   }
 }

@@ -87,14 +87,9 @@ export async function ensureSs1SecondTermCourse() {
     )
   }
 
-  const { rows: moduleCount } = await query<{ count: string }>(
-    'SELECT COUNT(*)::text AS count FROM modules WHERE course_id = $1',
-    [courseId]
-  )
-  if (Number(moduleCount[0].count) > 0) {
-    console.log(`  SS1 Second Term already seeded (${moduleCount[0].count} modules).`)
-    return
-  }
+  // Previously this returned early whenever the course already had any modules.
+  // That turned an interrupted seed into a permanently half-built course, so the
+  // loop below now converges on the desired structure instead.
 
   for (const [modulePosition, module] of SS1_MODULES.entries()) {
     const { rows: insertedModules } = await query<{ id: string }>(
@@ -132,19 +127,31 @@ async function ensureLessonQuiz(lessonId: string, courseId: string, lesson: Ss1L
     'SELECT id FROM quizzes WHERE lesson_id = $1 AND title = $2 LIMIT 1',
     [lessonId, lesson.quiz.title]
   )
-  if (existingQuiz[0]) return existingQuiz[0].id
+  let quizId = existingQuiz[0]?.id
 
-  const { rows: quizzes } = await query<{ id: string }>(
-    `INSERT INTO quizzes (course_id, lesson_id, title, description, time_limit, passing_score, max_attempts, shuffle_questions, show_results, created_by)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, false, true, $8) RETURNING id`,
-    [courseId, lessonId, lesson.quiz.title, lesson.quiz.description, lesson.quiz.timeLimit, lesson.quiz.passingScore, lesson.quiz.maxAttempts, instructorId]
-  )
-  const quizId = quizzes[0].id
+  if (!quizId) {
+    const { rows: quizzes } = await query<{ id: string }>(
+      `INSERT INTO quizzes (course_id, lesson_id, title, description, time_limit, passing_score, max_attempts, shuffle_questions, show_results, created_by)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, false, true, $8) RETURNING id`,
+      [courseId, lessonId, lesson.quiz.title, lesson.quiz.description, lesson.quiz.timeLimit, lesson.quiz.passingScore, lesson.quiz.maxAttempts, instructorId]
+    )
+    quizId = quizzes[0].id
+  } else {
+    // An interrupted previous run can leave a quiz row behind with no questions.
+    const { rows: questionCount } = await query<{ count: string }>(
+      'SELECT COUNT(*)::text AS count FROM quiz_questions WHERE quiz_id = $1',
+      [quizId]
+    )
+    if (Number(questionCount[0].count) > 0) return quizId
+  }
+
   let position = 0
   for (const q of lesson.quiz.questions) {
     await query(
-      `INSERT INTO quiz_questions (quiz_id, question_text, question_type, options, correct_answer, points, position, explanation)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+      // NOTE: quiz_questions has no `explanation` column (see src/db/migrate.ts),
+      // so the optional explanation carried on the seed types is not persisted.
+      `INSERT INTO quiz_questions (quiz_id, question_text, question_type, options, correct_answer, points, position)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)`,
       [
         quizId,
         q.questionText,
@@ -153,7 +160,6 @@ async function ensureLessonQuiz(lessonId: string, courseId: string, lesson: Ss1L
         q.correctAnswer,
         q.points ?? 1,
         position++,
-        q.explanation ?? null,
       ]
     )
   }
