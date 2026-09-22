@@ -109,7 +109,7 @@ export const module01: M2cModuleData = {
     {
       title: 'Integers, Floats & Precision in Code',
       duration: 35,
-      content: `## Learning Objectives\n- Distinguish between integer and floating-point numbers.\n- Recognize why 0.1 + 0.2 != 0.3 exactly.\n- Explain overflow and precision limits.\n\n## Integer vs Floating-Point\n**Integers** are whole numbers (e.g., 1, 42, -7). **Floats** have a fractional part (e.g., 3.14).\n\n## Why 0.1 + 0.2 != 0.3\nTry 0.1 + 0.2 in JavaScript -> 0.30000000000000004. This is IEEE 754: just as 1/3 can't be finite in decimal, 0.1 can't be exact in binary.\n\n## Overflow and Limits\nWhen a number exceeds its type's maximum, **overflow** occurs. Number.MAX_SAFE_INTEGER = 9007199254740991; beyond it, integers start skipping.`,
+      content: `## Learning Objectives\n- Distinguish between integer and floating-point numbers.\n- Recognize why 0.1 + 0.2 != 0.3 exactly.\n- Explain overflow and precision limits.\n\n## Integer vs Floating-Point\n**Integers** are whole numbers (e.g., 1, 42, -7). **Floats** have a fractional part (e.g., 3.14).\n\n## Why 0.1 + 0.2 != 0.3\nTry 0.1 + 0.2 in JavaScript -> 0.30000000000000004. This is IEEE 754: just as 1/3 can't be finite in decimal, 0.1 can\'t be exact in binary.\n\n## Overflow and Limits\nWhen a number exceeds its type\'s maximum, **overflow** occurs. Number.MAX_SAFE_INTEGER = 9007199254740991; beyond it, integers start skipping.`,
       quiz: {
         title: 'Quiz 1.4 — Integers, Floats & Precision',
         description: 'Three questions on numeric types and floating-point representation.',

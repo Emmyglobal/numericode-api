@@ -27,7 +27,7 @@ export interface M2cQuizData {
 
 export interface M2cAssignmentQuestionData {
   id: string
-  type: 'theory' | 'subjective' | 'file'
+  type: 'theory' | 'subjective' | 'file',
   title: string
   marks: number
 }
@@ -40,7 +40,7 @@ export interface M2cAssignmentData {
   dueDate: string
   totalMarks: number
   passingScore: number
-  assignmentType: 'theory' | 'subjective' | 'file' | 'mixed'
+  assignmentType: 'theory' | 'subjective' | 'file' | 'mixed',
   questions: M2cAssignmentQuestionData[]
 }
 

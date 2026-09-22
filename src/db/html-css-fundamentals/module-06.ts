@@ -11,21 +11,21 @@ export const module06: HcfModuleData = {
 **Three ways to add CSS:**
 
 **1. External stylesheet (best practice):**
-```html
+\`\`\`html
 <link rel="stylesheet" href="styles.css" />
-```
+\`\`\`
 
 **2. Internal CSS (in <style> tag):**
-```html
+\`\`\`html
 <style>
   p { color: navy; }
 </style>
-```
+\`\`\`
 
 **3. Inline styles (avoid for maintainability):**
-```html
+\`\`\`html
 <p style="color: navy;">Text</p>
-```
+\`\`\`
 
 **Why external stylesheets are best:**
 - Separation of concerns (HTML = structure, CSS = presentation)
@@ -82,24 +82,24 @@ export const module06: HcfModuleData = {
 
 **Element selectors:**
 Target all elements of a given type:
-```css
+\`\`\`css
 p { color: black; }
 h1 { font-size: 2rem; }
-```
+\`\`\`
 
 **Class selectors:**
 Target elements with a specific class (reusable):
-```css
+\`\`\`css
 .highlight { background-color: yellow; }
 .card { padding: 16px; }
-```
+\`\`\`
 
 **ID selectors:**
 Target a unique element (should only be used once per page):
-```css
+\`\`\`css
 #main-title { font-size: 2rem; }
 #header { position: fixed; }
-```
+\`\`\`
 
 **When to use each:**
 - Element selectors: for broad, type-based styling
@@ -108,8 +108,8 @@ Target a unique element (should only be used once per page):
 
 ## Key Takeaways
 
-- Use `.class` selectors for reusable styles.
-- Use `#id` selectors only for unique elements.
+- Use \`.class\` selectors for reusable styles.
+- Use \`#id\` selectors only for unique elements.
 - An element can have multiple classes but only one ID.`,
       quiz: {
         title: 'Quiz 6.2 — Selectors: Element, Class & ID',
@@ -156,34 +156,34 @@ Target a unique element (should only be used once per page):
 **Combinators define relationships between elements:**
 
 **Descendant combinator (space):**
-```css
+\`\`\`css
 nav a { color: blue; }  /* All <a> inside <nav> */
-```
+\`\`\`
 
 **Child combinator (>):**
-```css
+\`\`\`css
 nav > ul { list-style: none; }  /* Direct <ul> children of <nav> */
-```
+\`\`\`
 
 **Adjacent sibling combinator (+):**
-```css
+\`\`\`css
 h2 + p { margin-top: 0; }  /* <p> immediately after <h2> */
-```
+\`\`\`
 
 **General sibling combinator (~):**
-```css
+\`\`\`css
 h2 ~ p { color: gray; }  /* All <p> siblings after <h2> */
-```
+\`\`\`
 
 **Grouping selectors (comma):**
-```css
+\`\`\`css
 h1, h2, h3 { font-family: sans-serif; }
-```
+\`\`\`
 
 ## Key Takeaways
 
-- Use `>` for direct children only.
-- Use `+` for adjacent siblings.
+- Use \`>\` for direct children only.
+- Use \`+\` for adjacent siblings.
 - Use comma to apply same rules to multiple selectors.`,
       quiz: {
         title: 'Quiz 6.3 — Combinators & Grouping',
@@ -247,7 +247,7 @@ When two selectors have equal specificity, the one that comes later wins.
 **!important:**
 A last resort that overrides normal specificity. Should be used sparingly.
 
-```css
+\`\`\`css
 /* Element selector */
 p { color: black; }           /* specificity: 0,0,0,1 */
 
@@ -259,7 +259,7 @@ p { color: black; }           /* specificity: 0,0,0,1 */
 
 /* Inline style wins over everything */
 <p style="color: green;">    /* specificity: 1,0,0,0 */
-```
+\`\`\`
 
 ## Key Takeaways
 
@@ -315,7 +315,7 @@ p { color: black; }           /* specificity: 0,0,0,1 */
 3. **Border** — surrounds padding and content
 4. **Margin** — space outside the border, between elements
 
-```css
+\`\`\`css
 .box {
   width: 200px;           /* Content width */
   padding: 20px;          /* Space inside border */
@@ -323,7 +323,7 @@ p { color: black; }           /* specificity: 0,0,0,1 */
   margin: 10px;           /* Space outside border */
   box-sizing: border-box; /* Include padding+border in width */
 }
-```
+\`\`\`
 
 **box-sizing: border-box vs content-box:**
 - **content-box (default):** width = content only; padding and border add to total
@@ -381,9 +381,9 @@ Adjacent vertical margins can collapse into the larger of the two.
     dueDate: '2026-11-23T23:59:59Z',
     totalMarks: 25,
     passingScore: 60,
-    assignmentType: file,
+    assignmentType: 'file',
     questions: [
-      { id: 'a6-1', type: file, title: 'Styled HTML Page with CSS', marks: 25 },
+      { id: 'a6-1', type: 'file', title: 'Styled HTML Page with CSS', marks: 25 },
     ],
   },
 }

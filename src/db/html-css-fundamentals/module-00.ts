@@ -249,7 +249,7 @@ This diagnostic quiz confirms you have the basic toolkit ready before Module 1 b
   ],
   assignment: {
     title: 'Module 0 Assignment — "Toolkit Proof"',
-    description: 'Submit a screenshot showing: (a) your editor open with a file named index.html, (b) that file opened in a browser, and (c) the browser's DevTools Elements panel open showing the page's HTML.',
+    description: 'Submit a screenshot showing: (a) your editor open with a file named index.html, (b) that file opened in a browser, and (c) the browser\'s DevTools Elements panel open showing the page\'s HTML.',
     dueDate: '2026-10-12T23:59:59Z',
     totalMarks: 10,
     passingScore: 50,

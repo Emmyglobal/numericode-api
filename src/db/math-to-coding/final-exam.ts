@@ -87,7 +87,7 @@ export const FINAL_EXAM_Q_MODULE_1: FinalExamQuestion[] = [
 
 export const FINAL_EXAM_Q_MODULE_2: FinalExamQuestion[] = [
   {
-    questionText: 'Simplify `!(p || q)` using De Morgan's Law.',
+    questionText: 'Simplify `!(p || q)` using De Morgan\'s Law.',
     questionType: 'fill_blank',
     correctAnswer: '!p && !q',
     points: FINAL_EXAM_POINTS_PER_QUESTION,
@@ -611,7 +611,7 @@ export const FINAL_EXAM_ALL_QUESTIONS: FinalExamQuestion[] = [
 ];
 
 // Runtime sanity check (dev/build only).
-if (typeof window === 'undefined') {
+if (typeof (globalThis as Record<string, unknown>).window === 'undefined') {
   const mcCount =
     FINAL_EXAM_Q_MODULE_1.length +
     FINAL_EXAM_Q_MODULE_2.length +
@@ -626,12 +626,12 @@ if (typeof window === 'undefined') {
   const essayCount = FINAL_EXAM_PRACTICAL_PROBLEMS.length;
   if (mcCount !== 50 || essayCount !== 3) {
     throw new Error(
-      \`Final exam question bank mismatch: expected 50 MCQ/TF/fb + 3 essay, got \${mcCount} + \${essayCount}\`,
+      `Final exam question bank mismatch: expected 50 MCQ/TF/fb + 3 essay, got ${mcCount} + ${essayCount}`,
     );
   }
   if (FINAL_EXAM_ALL_QUESTIONS.length !== 53) {
     throw new Error(
-      \`Final exam total mismatch: expected 53 questions, got \${FINAL_EXAM_ALL_QUESTIONS.length}\`,
+      `Final exam total mismatch: expected 53 questions, got ${FINAL_EXAM_ALL_QUESTIONS.length}`,
     );
   }
 }

@@ -39,7 +39,7 @@ export { FINAL_EXAM }
 // ─── Runtime invariant checks ─────────────────────────────────────────────────
 // These run only at build/type-check time (no window object).
 
-if (typeof window === 'undefined') {
+if (typeof (globalThis as Record<string, unknown>).window === 'undefined') {
   // --- Module/lesson count invariants ---
   const totalLessons = HCF_MODULES.reduce((acc, m) => acc + m.lessons.length, 0)
   const totalQuizzes = HCF_MODULES.reduce(

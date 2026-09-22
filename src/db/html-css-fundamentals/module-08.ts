@@ -10,13 +10,13 @@ export const module08: HcfModuleData = {
 
 **CSS Grid creates two-dimensional layouts (rows AND columns):**
 
-```css
+\`\`\`css
 .gallery {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
   gap: 16px;
 }
-```
+\`\`\`
 
 **Basic Grid properties:**
 
@@ -90,22 +90,22 @@ export const module08: HcfModuleData = {
 **Grid item placement properties:**
 
 **grid-column:** which columns an item spans
-```css
+\`\`\`css
 .hero { grid-column: 1 / 3; }  /* Span from line 1 to line 3 (2 columns) */
-```
+\`\`\`
 
 **grid-row:** which rows an item spans
 
 **Spanning multiple tracks:**
-```css
+\`\`\`css
 .item {
   grid-column: 2 / 4;  /* Span 2 columns */
   grid-row: 1 / 3;     /* Span 2 rows */
 }
-```
+\`\`\`
 
 **Named grid areas:**
-```css
+\`\`\`css
 .layout {
   display: grid;
   grid-template-areas:
@@ -117,7 +117,7 @@ export const module08: HcfModuleData = {
 .sidebar { grid-area: sidebar; }
 .content { grid-area: content; }
 .footer { grid-area: footer; }
-```
+\`\`\`
 
 ## Key Takeaways
 
@@ -178,7 +178,7 @@ export const module08: HcfModuleData = {
 - Use Grid for overall page structure
 - Use Flexbox inside grid items for component-level layout
 
-```css
+\`\`\`css
 /* Grid for page layout */
 .page {
   display: grid;
@@ -195,7 +195,7 @@ export const module08: HcfModuleData = {
   justify-content: space-between;
   grid-area: header;
 }
-```
+\`\`\`
 
 ## Key Takeaways
 
@@ -246,7 +246,7 @@ export const module08: HcfModuleData = {
 
 **Media queries apply styles based on conditions:**
 
-```css
+\`\`\`css
 /* Mobile-first base styles (small screens first) */
 .gallery { grid-template-columns: 1fr; }
 
@@ -259,7 +259,7 @@ export const module08: HcfModuleData = {
 @media (min-width: 900px) {
   .gallery { grid-template-columns: repeat(3, 1fr); }
 }
-```
+\`\`\`
 
 **Mobile-first approach:**
 1. Write base styles for small screens (mobile)
@@ -324,9 +324,9 @@ export const module08: HcfModuleData = {
       content: `## Key Ideas
 
 **Responsive images:**
-```css
+\`\`\`css
 img { max-width: 100%; height: auto; }
-```
+\`\`\`
 - max-width: 100% prevents image from overflowing container
 - height: auto maintains aspect ratio
 
@@ -340,13 +340,13 @@ img { max-width: 100%; height: auto; }
 - px: fixed pixels (not recommended for all sizing)
 
 **Container pattern:**
-```css
+\`\`\`css
 .container {
   width: 90%;
   max-width: 1200px;
   margin: 0 auto;
 }
-```
+\`\`\`
 
 **srcset overview:**
 - Allows browser to choose appropriate image size
@@ -401,9 +401,9 @@ img { max-width: 100%; height: auto; }
     dueDate: '2026-12-07T23:59:59Z',
     totalMarks: 25,
     passingScore: 60,
-    assignmentType: file,
+    assignmentType: 'file',
     questions: [
-      { id: 'a8-1', type: file, title: 'Responsive Grid Gallery', marks: 25 },
+      { id: 'a8-1', type: 'file', title: 'Responsive Grid Gallery', marks: 25 },
     ],
   },
 }

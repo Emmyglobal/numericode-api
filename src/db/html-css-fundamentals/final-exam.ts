@@ -304,7 +304,7 @@ export const FINAL_EXAM: HcfQuizData = {
 }
 
 // Runtime sanity check (dev/build only).
-if (typeof window === 'undefined') {
+if (typeof (globalThis as Record<string, unknown>).window === 'undefined') {
   const mcCount = FINAL_EXAM.questions.filter(q => q.questionType !== 'essay').length
   const essayCount = FINAL_EXAM.questions.filter(q => q.questionType === 'essay').length
   if (mcCount !== 50 || essayCount !== 3) {

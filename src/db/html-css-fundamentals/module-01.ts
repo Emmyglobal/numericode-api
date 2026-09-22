@@ -18,20 +18,20 @@ export const module01: HcfModuleData = {
             questionText: 'What is the program that requests and displays web pages called?',
             questionType: 'multiple_choice',
             options: [
-              { id: 'a', text: 'A web browser (client)', isCorrect: True }
-              { id: 'b', text: 'A web server', isCorrect: False }
-              { id: 'c', text: 'A database', isCorrect: False }
-              { id: 'd', text: 'An ISP', isCorrect: False }
+              { id: 'a', text: 'A web browser (client)', isCorrect: true },
+              { id: 'b', text: 'A web server', isCorrect: false },
+              { id: 'c', text: 'A database', isCorrect: false },
+              { id: 'd', text: 'An ISP', isCorrect: false }
             ],
             correctAnswer: 'a',
           },                    {
             questionText: 'What is the program that stores and sends back web pages called?',
             questionType: 'multiple_choice',
             options: [
-              { id: 'a', text: 'A web browser', isCorrect: False }
-              { id: 'b', text: 'A web server', isCorrect: True }
-              { id: 'c', text: 'A search engine', isCorrect: False }
-              { id: 'd', text: 'A router', isCorrect: False }
+              { id: 'a', text: 'A web browser', isCorrect: false },
+              { id: 'b', text: 'A web server', isCorrect: true },
+              { id: 'c', text: 'A search engine', isCorrect: false },
+              { id: 'd', text: 'A router', isCorrect: false }
             ],
             correctAnswer: 'b',
           },                    {
@@ -57,30 +57,30 @@ export const module01: HcfModuleData = {
             questionText: 'What does `<!DOCTYPE html>` tell the browser?',
             questionType: 'multiple_choice',
             options: [
-              { id: 'a', text: 'To render the page using the HTML5 standard', isCorrect: True }
-              { id: 'b', text: 'The page is in Dutch', isCorrect: False }
-              { id: 'c', text: 'To use CSS for styling', isCorrect: False }
-              { id: 'd', text: 'To validate the HTML', isCorrect: False }
+              { id: 'a', text: 'To render the page using the HTML5 standard', isCorrect: true },
+              { id: 'b', text: 'The page is in Dutch', isCorrect: false },
+              { id: 'c', text: 'To use CSS for styling', isCorrect: false },
+              { id: 'd', text: 'To validate the HTML', isCorrect: false }
             ],
             correctAnswer: 'a',
           },                    {
             questionText: 'Which tag holds content visible on the page?',
             questionType: 'multiple_choice',
             options: [
-              { id: 'a', text: '<head>', isCorrect: False }
-              { id: 'b', text: '<html>', isCorrect: False }
-              { id: 'c', text: '<body>', isCorrect: True }
-              { id: 'd', text: '<title>', isCorrect: False }
+              { id: 'a', text: '<head>', isCorrect: false },
+              { id: 'b', text: '<html>', isCorrect: false },
+              { id: 'c', text: '<body>', isCorrect: true },
+              { id: 'd', text: '<title>', isCorrect: false }
             ],
             correctAnswer: 'c',
           },                    {
             questionText: 'Which tag sets the browsers tab title text?',
             questionType: 'multiple_choice',
             options: [
-              { id: 'a', text: '<head>', isCorrect: False }
-              { id: 'b', text: '<title>', isCorrect: True }
-              { id: 'c', text: '<meta>', isCorrect: False }
-              { id: 'd', text: '<h1>', isCorrect: False }
+              { id: 'a', text: '<head>', isCorrect: false },
+              { id: 'b', text: '<title>', isCorrect: true },
+              { id: 'c', text: '<meta>', isCorrect: false },
+              { id: 'd', text: '<h1>', isCorrect: false }
             ],
             correctAnswer: 'b',
           }
@@ -102,20 +102,20 @@ export const module01: HcfModuleData = {
             questionText: 'In `<img src="cat.jpg" alt="cat">`, what is `src` called?',
             questionType: 'multiple_choice',
             options: [
-              { id: 'a', text: 'An element', isCorrect: False }
-              { id: 'b', text: 'A tag', isCorrect: False }
-              { id: 'c', text: 'An attribute', isCorrect: True }
-              { id: 'd', text: 'A property', isCorrect: False }
+              { id: 'a', text: 'An element', isCorrect: false },
+              { id: 'b', text: 'A tag', isCorrect: false },
+              { id: 'c', text: 'An attribute', isCorrect: true },
+              { id: 'd', text: 'A property', isCorrect: false }
             ],
             correctAnswer: 'c',
           },                    {
             questionText: 'Which of these is a void (self-closing) element?',
             questionType: 'multiple_choice',
             options: [
-              { id: 'a', text: '<p>', isCorrect: False }
-              { id: 'b', text: '<div>', isCorrect: False }
-              { id: 'c', text: '<img>', isCorrect: True }
-              { id: 'd', text: '<span>', isCorrect: False }
+              { id: 'a', text: '<p>', isCorrect: false },
+              { id: 'b', text: '<div>', isCorrect: false },
+              { id: 'c', text: '<img>', isCorrect: true },
+              { id: 'd', text: '<span>', isCorrect: false }
             ],
             correctAnswer: 'c',
           },                    {
@@ -141,10 +141,10 @@ export const module01: HcfModuleData = {
             questionText: 'Which heading tag represents the most important heading on a page?',
             questionType: 'multiple_choice',
             options: [
-              { id: 'a', text: '<h2>', isCorrect: False }
-              { id: 'b', text: '<h1>', isCorrect: True }
-              { id: 'c', text: '<h3>', isCorrect: False }
-              { id: 'd', text: '<h6>', isCorrect: False }
+              { id: 'a', text: '<h2>', isCorrect: false },
+              { id: 'b', text: '<h1>', isCorrect: true },
+              { id: 'c', text: '<h3>', isCorrect: false },
+              { id: 'd', text: '<h6>', isCorrect: false }
             ],
             correctAnswer: 'b',
           },                    {
@@ -155,10 +155,10 @@ export const module01: HcfModuleData = {
             questionText: 'What tag wraps a block of body text?',
             questionType: 'multiple_choice',
             options: [
-              { id: 'a', text: '<h1>', isCorrect: False }
-              { id: 'b', text: '<div>', isCorrect: False }
-              { id: 'c', text: '<p>', isCorrect: True }
-              { id: 'd', text: '<span>', isCorrect: False }
+              { id: 'a', text: '<h1>', isCorrect: false },
+              { id: 'b', text: '<div>', isCorrect: false },
+              { id: 'c', text: '<p>', isCorrect: true },
+              { id: 'd', text: '<span>', isCorrect: false }
             ],
             correctAnswer: 'c',
           }
@@ -180,10 +180,10 @@ export const module01: HcfModuleData = {
             questionText: 'What is the correct HTML comment syntax?',
             questionType: 'multiple_choice',
             options: [
-              { id: 'a', text: '// comment', isCorrect: False }
-              { id: 'b', text: '<!-- comment -->', isCorrect: True }
-              { id: 'c', text: '/* comment */', isCorrect: False }
-              { id: 'd', text: '# comment', isCorrect: False }
+              { id: 'a', text: '// comment', isCorrect: false },
+              { id: 'b', text: '<!-- comment -->', isCorrect: true },
+              { id: 'c', text: '/* comment */', isCorrect: false },
+              { id: 'd', text: '# comment', isCorrect: false }
             ],
             correctAnswer: 'b',
           },                    {
@@ -194,10 +194,10 @@ export const module01: HcfModuleData = {
             questionText: 'What tool can check your HTML for structural errors?',
             questionType: 'multiple_choice',
             options: [
-              { id: 'a', text: 'The browser console', isCorrect: False }
-              { id: 'b', text: 'The W3C Markup Validator', isCorrect: True }
-              { id: 'c', text: 'A text editor', isCorrect: False }
-              { id: 'd', text: 'DevTools', isCorrect: False }
+              { id: 'a', text: 'The browser console', isCorrect: false },
+              { id: 'b', text: 'The W3C Markup Validator', isCorrect: true },
+              { id: 'c', text: 'A text editor', isCorrect: false },
+              { id: 'd', text: 'DevTools', isCorrect: false }
             ],
             correctAnswer: 'b',
           }
@@ -211,9 +211,9 @@ export const module01: HcfModuleData = {
     dueDate: '2026-10-19T23:59:59Z',
     totalMarks: 20,
     passingScore: 60,
-    assignmentType: file,
+    assignmentType: 'file',
     questions: [
-      { id: 'a1-1', type: file, title: 'HTML Page Submission', marks: 20 },
+      { id: 'a1-1', type: 'file', title: 'HTML Page Submission', marks: 20 },
     ],
   },
 }

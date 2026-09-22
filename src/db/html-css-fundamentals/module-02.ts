@@ -9,14 +9,14 @@ export const module02: HcfModuleData = {
       content: `## Key Ideas
 
 **Essential <head> elements:**
-- `<meta charset="UTF-8">` — character encoding (should be near the top)
-- `<meta name="viewport" content="width=device-width, initial-scale=1.0">` — mobile rendering
-- `<meta name="description" content="...">` — SEO description
-- `<link rel="stylesheet" href="styles.css">` — linking external CSS
-- `<link rel="icon" href="favicon.ico">` — favicon
-- `<title>` — browser tab text
+- \`<meta charset="UTF-8">\` — character encoding (should be near the top)
+- \`<meta name="viewport" content="width=device-width, initial-scale=1.0">\` — mobile rendering
+- \`<meta name="description" content="...">\` — SEO description
+- \`<link rel="stylesheet" href="styles.css">\` — linking external CSS
+- \`<link rel="icon" href="favicon.ico">\` — favicon
+- \`<title>\` — browser tab text
 
-```html
+\`\`\`html
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
@@ -25,15 +25,15 @@ export const module02: HcfModuleData = {
   <link rel="icon" href="favicon.ico" />
   <title>My Page</title>
 </head>
-```
+\`\`\`
 
 ## Key Takeaways
 
-- `<meta charset="UTF-8">` should be one of the first tags in `<head>`.
+- \`<meta charset="UTF-8">\` should be one of the first tags in \`<head>\`.
 - The viewport meta tag is essential for mobile-responsive rendering.
-- `<link rel="stylesheet">` connects your HTML to external CSS.
-- The `<title>` element sets the browser tab text and is important for SEO.
-- The `<link>` tag can also be used for favicons and other resources.`,`,
+- \`<link rel="stylesheet">\` connects your HTML to external CSS.
+- The \`<title>\` element sets the browser tab text and is important for SEO.
+- The \`<link>\` tag can also be used for favicons and other resources.`,
       quiz: {
         title: 'Quiz 2.1 — The <head> in Depth',
         description: 'Three questions on head metadata, viewport, and linking CSS.',
@@ -77,27 +77,27 @@ export const module02: HcfModuleData = {
       content: `## Key Ideas
 
 **Semantic vs stylistic elements:**
-- `<strong>` vs `<b>` — `<strong>` conveys strong importance (semantic), `<b>` is purely stylistic bold
-- `<em>` vs `<i>` — `<em>` conveys emphasis (semantic), `<i>` is purely stylistic italic
+- \`<strong>\` vs \`<b>\` — \`<strong>\` conveys strong importance (semantic), \`<b>\` is purely stylistic bold
+- \`<em>\` vs \`<i>\` — \`<em>\` conveys emphasis (semantic), \`<i>\` is purely stylistic italic
 
 **Other text elements:**
-- `<small>` — small print (e.g., disclaimers, fine print)
-- `<mark>` — highlighted text
-- `<br>` — line break (void element)
-- `<hr>` — thematic break (often rendered as horizontal line)
+- \`<small>\` — small print (e.g., disclaimers, fine print)
+- \`<mark>\` — highlighted text
+- \`<br>\` — line break (void element)
+- \`<hr>\` — thematic break (often rendered as horizontal line)
 
-```html
+\`\`\`html
 <p>This is <strong>very important</strong> and this is <em>emphasized</em>.</p>
 <p>Line one<br />Line two</p>
 <hr />
-```
+\`\`\`
 
 ## Key Takeaways
 
-- `<strong>` conveys strong importance; `<b>` is purely stylistic bold with no added meaning.
-- `<em>` conveys emphasis; `<i>` is purely stylistic italic.
-- `<br>` inserts a line break.
-- `<hr>` represents a thematic break, often rendered as a horizontal line.`,`,
+- \`<strong>\` conveys strong importance; \`<b>\` is purely stylistic bold with no added meaning.
+- \`<em>\` conveys emphasis; \`<i>\` is purely stylistic italic.
+- \`<br>\` inserts a line break.
+- \`<hr>\` represents a thematic break, often rendered as a horizontal line.`,
       quiz: {
         title: 'Quiz 2.2 — Text Formatting Elements',
         description: 'Three questions on semantic vs stylistic text elements.',
@@ -141,3 +141,5 @@ export const module02: HcfModuleData = {
         ],
       },
     },
+  ],
+}

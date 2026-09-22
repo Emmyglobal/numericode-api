@@ -10,13 +10,13 @@ export const module10: HcfModuleData = {
 
 **Transitions:** Smoothly animate between states.
 
-```css
+\`\`\`css
 .button {
   background: #2e75b6;
   transition: background 0.2s ease-in-out;
 }
 .button:hover { background: #1e3a5f; }
-```
+\`\`\`
 
 **Transition properties:**
 - transition-property: which property to animate
@@ -35,7 +35,7 @@ Many properties are animatable: color, background-color, opacity, transform, wid
 
 - Use transition-duration to specify how long a transition takes.
 - :hover is commonly used for interactive feedback (also :focus, :active).
-- Transitions can animate many properties, not just colors.`,`,
+- Transitions can animate many properties, not just colors.`,
       quiz: {
         title: 'Quiz 10.1 - CSS Transitions',
         description: 'Three questions on CSS transitions.',
@@ -80,7 +80,7 @@ Many properties are animatable: color, background-color, opacity, transform, wid
 
 **Transform functions:**
 
-```css
+\`\`\`css
 /* Scale */
 .card:hover { transform: scale(1.05); }
 
@@ -94,7 +94,7 @@ Many properties are animatable: color, background-color, opacity, transform, wid
 .card:hover {
   transform: scale(1.05) rotate(-1deg);
 }
-```
+\`\`\`
 
 **Key characteristics:**
 - Transforms don't affect document flow
@@ -111,7 +111,7 @@ Many properties are animatable: color, background-color, opacity, transform, wid
 
 - scale(1.05) enlarges to 105% of original size.
 - translate(10px, 0) shifts 10px right without affecting layout.
-- Transform doesn't change space in normal document flow.`,`,
+- Transform doesn't change space in normal document flow.`,
       quiz: {
         title: 'Quiz 10.2 - CSS Transforms',
         description: 'Three questions on CSS transforms.',
@@ -156,7 +156,7 @@ Many properties are animatable: color, background-color, opacity, transform, wid
 
 **@keyframes defines animation stages:**
 
-```css
+\`\`\`css
 @keyframes fadeIn {
   from { opacity: 0; transform: translateY(10px); }
   to   { opacity: 1; transform: translateY(0); }
@@ -165,7 +165,7 @@ Many properties are animatable: color, background-color, opacity, transform, wid
 .hero-text {
   animation: fadeIn 0.6s ease-out forwards;
 }
-```
+\`\`\`
 
 **Animation properties:**
 - animation-name: which @keyframes to use
@@ -180,7 +180,7 @@ Many properties are animatable: color, background-color, opacity, transform, wid
 
 - @keyframes defines the stages of a CSS animation.
 - animation-iteration-count: infinite repeats forever.
-- forwards fill-mode keeps the element in its final keyframe state.`,`,
+- forwards fill-mode keeps the element in its final keyframe state.`,
       quiz: {
         title: 'Quiz 10.3 - Keyframe Animations',
         description: 'Three questions on keyframe animations.',
@@ -231,7 +231,7 @@ Many properties are animatable: color, background-color, opacity, transform, wid
 
 **Style all interactive states:**
 
-```css
+\`\`\`css
 .button:hover,
 .button:focus {
   background: #1e3a5f;
@@ -239,7 +239,7 @@ Many properties are animatable: color, background-color, opacity, transform, wid
   outline-offset: 2px;
 }
 .button:active { transform: scale(0.98); }
-```
+\`\`\`
 
 **Why :focus matters:**
 - :focus provides visible feedback for keyboard users
@@ -254,7 +254,7 @@ Many properties are animatable: color, background-color, opacity, transform, wid
 
 - :focus styles should never simply be removed with outline: none.
 - :active is applied while the element is being clicked/pressed.
-- :hover doesn't provide useful feedback on touch-only devices.`,`,
+- :hover doesn't provide useful feedback on touch-only devices.`,
       quiz: {
         title: 'Quiz 10.4 - Interactive States',
         description: 'Three questions on interactive pseudo-classes.',
@@ -308,7 +308,7 @@ Many properties are animatable: color, background-color, opacity, transform, wid
 
 **Best practices:**
 
-```css
+\`\`\`css
 /* GOOD: GPU-accelerated */
 .card:hover {
   transform: translateY(-5px);
@@ -320,7 +320,7 @@ Many properties are animatable: color, background-color, opacity, transform, wid
   width: 200px;  /* triggers layout on every frame */
   top: 50px;     /* triggers layout on every frame */
 }
-```
+\`\`\`
 
 **will-change:**
 - Use sparingly, only on elements that actually animate
@@ -331,7 +331,7 @@ Many properties are animatable: color, background-color, opacity, transform, wid
 
 - transform and opacity are the cheapest properties to animate smoothly.
 - Animating width/height directly is less performant (triggers layout).
-- will-change should be used sparingly, not on every element.`,`,
+- will-change should be used sparingly, not on every element.`,
       quiz: {
         title: 'Quiz 10.5 - Performance-Conscious Animation',
         description: 'Three questions on animation performance.',
@@ -376,9 +376,9 @@ Many properties are animatable: color, background-color, opacity, transform, wid
     dueDate: '2026-12-21T23:59:59Z',
     totalMarks: 25,
     passingScore: 60,
-    assignmentType: file,
+    assignmentType: 'file',
     questions: [
-      { id: 'a10-1', type: file, title: 'Animated Interactive Component', marks: 25 },
+      { id: 'a10-1', type: 'file', title: 'Animated Interactive Component', marks: 25 },
     ],
   },
 }

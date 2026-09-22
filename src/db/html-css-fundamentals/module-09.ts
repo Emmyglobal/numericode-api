@@ -1,3 +1,8 @@
+import type { HcfModuleData } from './types'
+
+export const module09: HcfModuleData = {
+  title: 'Module 9 — Typography, Color & Accessibility',
+  lessons: [
     {
       title: 'Type Scale, Line Height & Readability',
       duration: 30,
@@ -6,12 +11,12 @@
 **Consistent type scale:**
 Use a consistent ratio (e.g., 1.25) for heading sizes:
 
-```css
+\`\`\`css
 body { font-size: 16px; line-height: 1.5; }
 h1 { font-size: 2.5rem; }
 h2 { font-size: 2rem; }
 h3 { font-size: 1.5rem; }
-```
+\`\`\`
 
 **Line height for readability:**
 - Body text: roughly 1.4-1.6
@@ -20,9 +25,9 @@ h3 { font-size: 1.5rem; }
 **Max line length:**
 Limit paragraphs to a comfortable reading width:
 
-```css
+\`\`\`css
 p { max-width: 65ch; }
-```
+\`\`\`
 
 The ch unit represents the width of the "0" character.
 
@@ -30,7 +35,7 @@ The ch unit represents the width of the "0" character.
 
 - A consistent type scale creates visual harmony.
 - Use line-height of 1.4-1.6 for readable body text.
-- The ch unit helps limit line length for readability.`,`,
+- The ch unit helps limit line length for readability.`,
       quiz: {
         title: 'Quiz 9.2 - Type Scale, Line Height & Readability',
         description: 'Three questions on type scale and readability.',
@@ -75,7 +80,7 @@ The ch unit represents the width of the "0" character.
 
 **Three ways to specify colors in CSS:**
 
-```css
+\`\`\`css
 /* Hex */
 color: #2e75b6;
 
@@ -84,12 +89,12 @@ color: rgb(46, 117, 182);
 
 /* HSL */
 color: hsl(207, 62%, 45%);
-```
+\`\`\`
 
 **CSS Custom Properties (variables):**
 Define reusable values in :root:
 
-```css
+\`\`\`css
 :root {
   --color-primary: #2e75b6;
   --color-text: #1a1a1a;
@@ -97,7 +102,7 @@ Define reusable values in :root:
 }
 body { color: var(--color-text); background: var(--color-bg); }
 a { color: var(--color-primary); }
-```
+\`\`\`
 
 **Color theory basics:**
 - Primary colors: Red, blue, yellow (in traditional theory)
@@ -113,7 +118,7 @@ a { color: var(--color-primary); }
 
 - You can specify colors using hex, rgb(), or hsl().
 - CSS custom properties make your palette reusable.
-- HSL lets you adjust lightness independently.`,`,
+- HSL lets you adjust lightness independently.`,
       quiz: {
         title: 'Quiz 9.3 - Color Theory Basics & CSS Color Values',
         description: 'Three questions on color values and CSS variables.',
@@ -172,7 +177,7 @@ Use online contrast checkers before shipping a design.
 
 - WCAG AA requires 4.5:1 for normal text.
 - Always verify contrast with a checker.
-- Accessible design benefits everyone.`,`,
+- Accessible design benefits everyone.`,
       quiz: {
         title: 'Quiz 9.4 - Color Contrast & Accessible Palettes',
         description: 'Three questions on contrast ratios and accessible design.',
@@ -217,7 +222,7 @@ Use online contrast checkers before shipping a design.
 
 **Document your design tokens as CSS variables:**
 
-```css
+\`\`\`css
 :root {
   /* Colors */
   --color-primary: #2e75b6;
@@ -239,7 +244,7 @@ Use online contrast checkers before shipping a design.
   /* Borders */
   --radius: 8px;
 }
-```
+\`\`\`
 
 **What a style guide provides:**
 - Consistent color palette across the site
@@ -251,7 +256,7 @@ Use online contrast checkers before shipping a design.
 
 - Define spacing as CSS variables for consistency.
 - A style guide documents reusable design tokens.
-- A style guide covers colors, typography, AND spacing.`,`,
+- A style guide covers colors, typography, AND spacing.`,
       quiz: {
         title: 'Quiz 9.5 - Building a Simple Style Guide',
         description: 'Three questions on style guides and design tokens.',
@@ -296,9 +301,9 @@ Use online contrast checkers before shipping a design.
     dueDate: '2026-12-14T23:59:59Z',
     totalMarks: 25,
     passingScore: 60,
-    assignmentType: file,
+    assignmentType: 'file',
     questions: [
-      { id: 'a9-1', type: file, title: 'Style Guide + Redesigned Page', marks: 25 },
+      { id: 'a9-1', type: 'file', title: 'Style Guide + Redesigned Page', marks: 25 },
     ],
   },
 }

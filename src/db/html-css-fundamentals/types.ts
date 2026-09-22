@@ -32,7 +32,7 @@ export interface HcfQuizData {
 
 export interface HcfAssignmentQuestionData {
   id: string
-  type: 'theory' | 'subjective' | 'file'
+  type: 'theory' | 'subjective' | 'file',
   title: string
   marks: number
 }
@@ -45,7 +45,7 @@ export interface HcfAssignmentData {
   dueDate: string
   totalMarks: number
   passingScore: number
-  assignmentType: 'theory' | 'subjective' | 'file' | 'mixed'
+  assignmentType: 'theory' | 'subjective' | 'file' | 'mixed',
   questions: HcfAssignmentQuestionData[]
 }
 

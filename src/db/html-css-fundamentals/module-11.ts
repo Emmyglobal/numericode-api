@@ -17,7 +17,7 @@ A 3+ page site (Home, About, Projects/Contact) showcasing your work, fully respo
 A single-page site for a fictional or real small business with hero, services, testimonials, and contact form sections.
 
 ### Track C — Blog Template
-A 2-page site (post list + single post view) using semantic \`<article>\`/`<time>\` markup and a consistent style guide.
+A 2-page site (post list + single post view) using semantic \`<article>\`/\`<time>\` markup and a consistent style guide.
 
 ### Track D — Interactive Product Page
 A single product page with an image gallery, expandable FAQ (accordion), and animated call-to-action button.
@@ -39,7 +39,7 @@ A single product page with an image gallery, expandable FAQ (accordion), and ani
 | Responsive layout (Flexbox/Grid + media queries) | 25 |
 | Visual design & style guide consistency | 20 |
 | Accessibility (contrast, labels, alt text, focus states) | 20 |
-| Presentation & peer feedback given | 10 |`,`,
+| Presentation & peer feedback given | 10 |`,
       quiz: {
         title: 'Quiz 11.1 - Capstone Project Brief',
         description: 'Three questions on capstone requirements and tracks.',
@@ -108,7 +108,7 @@ Create a 1-page design doc that includes:
 
 - A design doc helps you think through the project before coding.
 - Plan mobile-first for easier responsive development.
-- Break large projects into small tasks.`,`,
+- Break large projects into small tasks.`,
       quiz: {
         title: 'Quiz 11.2 - Design & Planning',
         description: 'Three questions on project planning and design docs.',
@@ -175,7 +175,7 @@ Create working site files that:
 
 - Test at multiple breakpoints throughout development.
 - Validate early and often to catch errors.
-- Use a checklist to ensure all requirements are met.`,`,
+- Use a checklist to ensure all requirements are met.`,
       quiz: {
         title: 'Quiz 11.3 - Build & Test',
         description: 'Three questions on building and testing the capstone.',
@@ -239,7 +239,7 @@ Create working site files that:
 
 - Peer review helps you learn from others' approaches.
 - Present your work clearly and confidently.
-- Giving constructive feedback improves your own skills.`,`,
+- Giving constructive feedback improves your own skills.`,
       quiz: {
         title: 'Quiz 11.4 - Peer Review & Presentation',
         description: 'Three questions on peer review and presentation.',
@@ -259,7 +259,7 @@ Create working site files that:
             correctAnswer: 'a',
           },
           {
-            questionText: 'How many peers' submissions should you provide written feedback on?',
+            questionText: 'How many peers\' submissions should you provide written feedback on?',
             questionType: 'multiple_choice',
             options: [
               { id: 'a', text: '2', isCorrect: true },
@@ -317,7 +317,7 @@ The Final Exam contributes **20%** to your overall course grade. You must score 
 - The final exam has 50 questions + 3 practical problems.
 - You have 120 minutes to complete it.
 - One retake is allowed after a 48-hour cooldown.
-- The final exam is worth 20% of your course grade.`,`,
+- The final exam is worth 20% of your course grade.`,
       quiz: {
         title: 'Quiz 11.5 - Final Exam Overview',
         description: 'Three questions on the final exam format and requirements.',
@@ -368,9 +368,9 @@ The Final Exam contributes **20%** to your overall course grade. You must score 
     dueDate: '2027-01-04T23:59:59Z',
     totalMarks: 100,
     passingScore: 70,
-    assignmentType: file,
+    assignmentType: 'file',
     questions: [
-      { id: 'a11-1', type: file, title: 'Capstone Project Submission', marks: 100 },
+      { id: 'a11-1', type: 'file', title: 'Capstone Project Submission', marks: 100 },
     ],
   },
 }

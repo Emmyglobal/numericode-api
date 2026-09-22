@@ -12,10 +12,10 @@ export const module07: HcfModuleData = {
 
 **Common display values:**
 
-```css
+\`\`\`css
 span { display: inline-block; width: 100px; }
 .hidden { display: none; }
-```
+\`\`\`
 
 **Block elements:**
 - Start on a new line
@@ -92,14 +92,14 @@ span { display: inline-block; width: 100px; }
 - Element stays in normal flow
 - Can be shifted with top/right/bottom/left
 - Original space is preserved
-```css
+\`\`\`css
 .parent { position: relative; }
 .badge {
   position: absolute;
   top: 0;
   right: 0;
 }
-```
+\`\`\`
 
 **absolute:**
 - Removed from normal flow
@@ -110,9 +110,9 @@ span { display: inline-block; width: 100px; }
 - Removed from normal flow
 - Positioned relative to viewport
 - Stays in place during scroll
-```css
+\`\`\`css
 .sticky-header { position: fixed; top: 0; width: 100%; }
-```
+\`\`\`
 
 ## Key Takeaways
 
@@ -163,14 +163,14 @@ span { display: inline-block; width: 100px; }
 
 **Flexbox creates one-dimensional layouts:**
 
-```css
+\`\`\`css
 .navbar {
   display: flex;
   flex-direction: row;
   justify-content: space-between;
   align-items: center;
 }
-```
+\`\`\`
 
 **Main axis vs Cross axis:**
 - Main axis: defined by flex-direction (row = horizontal, column = vertical)
@@ -252,10 +252,10 @@ span { display: inline-block; width: 100px; }
 **flex-basis:** initial size before growing/shrinking
 
 **flex shorthand:** flex: grow shrink basis
-```css
+\`\`\`css
 .sidebar { flex: 0 0 250px; }  /* dont grow, dont shrink, base width 250px */
 .main-content { flex: 1; }     /* grow to fill remaining space */
-```
+\`\`\`
 
 **align-self:** override align-items for single item
 
@@ -315,32 +315,32 @@ span { display: inline-block; width: 100px; }
       content: `## Key Ideas
 
 **Centering content with Flexbox:**
-```css
+\`\`\`css
 .center-box {
   display: flex;
   justify-content: center;
   align-items: center;
   height: 100vh;
 }
-```
+\`\`\`
 
 **Card row with wrapping:**
-```css
+\`\`\`css
 .card-row {
   display: flex;
   flex-wrap: wrap;
   gap: 16px;
 }
-```
+\`\`\`
 
 **Navbar pattern:**
-```css
+\`\`\`css
 .navbar {
   display: flex;
   justify-content: space-between;
   align-items: center;
 }
-```
+\`\`\`
 
 **Common patterns:**
 1. **Perfect centering:** justify-content: center + align-items: center
@@ -403,9 +403,9 @@ span { display: inline-block; width: 100px; }
     dueDate: '2026-11-30T23:59:59Z',
     totalMarks: 25,
     passingScore: 60,
-    assignmentType: file,
+    assignmentType: 'file',
     questions: [
-      { id: 'a7-1', type: file, title: 'Flexbox Layout Page', marks: 25 },
+      { id: 'a7-1', type: 'file', title: 'Flexbox Layout Page', marks: 25 },
     ],
   },
 }

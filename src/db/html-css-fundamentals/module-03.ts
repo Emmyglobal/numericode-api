@@ -53,7 +53,7 @@ export const module03: HcfModuleData = {
     {
       title: 'Absolute vs Relative Paths',
       duration: 25,
-      content: "## Key Ideas\n\n**Absolute URLs:**\n- Include the full protocol and domain\n- Example: https://example.com/images/logo.png\n- Used for external resources\n\n**Root-relative paths:**\n- Start from the site's root with /\n- Example: /images/logo.png\n- Resolved from the domain root\n\n**Relative paths:**\n- Resolved based on the current file's location\n- ./image.png (same directory)\n- ../image.png (parent directory)\n- images/photo.jpg (subdirectory)\n\n## Key Takeaways\n- Absolute URLs include full protocol and domain.\n- Root-relative paths start from the site's root (/path).\n- Relative paths are resolved from the current file's location.",
+      content: "## Key Ideas\n\n**Absolute URLs:**\n- Include the full protocol and domain\n- Example: https://example.com/images/logo.png\n- Used for external resources\n\n**Root-relative paths:**\n- Start from the site's root with /\n- Example: /images/logo.png\n- Resolved from the domain root\n\n**Relative paths:**\n- Resolved based on the current file\'s location\n- ./image.png (same directory)\n- ../image.png (parent directory)\n- images/photo.jpg (subdirectory)\n\n## Key Takeaways\n- Absolute URLs include full protocol and domain.\n- Root-relative paths start from the site\'s root (/path).\n- Relative paths are resolved from the current file\'s location.",
       quiz: {
         title: 'Quiz 3.2 \u2014 Absolute vs Relative Paths',
         description: 'Three questions on path types and resolution.',

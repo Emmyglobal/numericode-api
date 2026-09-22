@@ -43,7 +43,7 @@ export const module02: M2cModuleData = {
     {
       title: "De Morgan's Laws & Simplifying Expressions",
       duration: 40,
-      content: `## Learning Objectives\n- Apply De Morgan's Laws.\n\n## De Morgan's Laws\n1. NOT(A AND B) = NOT A OR NOT B\n2. NOT(A OR B) = NOT A AND NOT B\n\n## Key Takeaways\nThese laws simplify complex conditional logic in code.`,
+      content: `## Learning Objectives\n- Apply De Morgan's Laws.\n\n## De Morgan\'s Laws\n1. NOT(A AND B) = NOT A OR NOT B\n2. NOT(A OR B) = NOT A AND NOT B\n\n## Key Takeaways\nThese laws simplify complex conditional logic in code.`,
       quiz: {
         title: "Quiz 2.3 — De Morgan's Laws",
         description: 'Three questions on De Morgan Laws.',

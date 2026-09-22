@@ -117,7 +117,7 @@ Essential Mathematics SS1, Page 312, Ex 21.2, Nos 3 & 5; Page 316, Ex 21.3, Nos 
         dueDate: '2026-11-19T23:59:59Z',
         totalMarks: 20,
         passingScore: 10,
-        assignmentType: 'practical',
+        assignmentType: 'subjective',
         questions: [
           { id: 'a1', type: 'subjective', title: 'Construct triangle PQR with PQ = 7 cm, QR = 5 cm and RP = 6 cm. Construct the circumcircle and measure its radius.', marks: 8 },
           { id: 'a2', type: 'subjective', title: 'Using ruler and compass only, construct angles of 60 degrees, 30 degrees and 45 degrees on the same baseline.', marks: 6 },

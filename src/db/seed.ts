@@ -12,6 +12,7 @@ import { ensureJss2ThirdTermCourse } from './jss2-third-term'
 import { ensureSs1FirstTermCourse } from './ss1-first-term'
 import { ensureSs1SecondTermCourse } from './ss1-second-term'
 import { ensureSs1ThirdTermCourse } from './ss1-third-term'
+import { ensureReactCourse } from './react-course'
 
 export async function seed() {
   console.log('Seeding database...')
@@ -231,6 +232,7 @@ export async function seed() {
     await ensureSs1FirstTermCourse()
     await ensureSs1SecondTermCourse()
     await ensureSs1ThirdTermCourse()
+    await ensureReactCourse()
     return
   }
 
@@ -1805,6 +1807,7 @@ If 250 were claimed as a term of 3, 8, 13…, solving 5n − 2 = 250 gives non-i
     await ensureSs1FirstTermCourse()
     await ensureSs1SecondTermCourse()
     await ensureSs1ThirdTermCourse()
+    await ensureReactCourse()
     await ensureExternalCourseFiles()
   console.log('Seed complete.')
   console.log(`  Admin:   emmanuel@numerycode.com      / password123`)
