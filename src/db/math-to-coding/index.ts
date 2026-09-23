@@ -18,6 +18,14 @@ import { module08 } from './module-08'
 import { module09 } from './module-09'
 import { module10 } from './module-10'
 import { module11 } from './module-11'
+import {
+  FINAL_EXAM_ALL_QUESTIONS,
+  FINAL_EXAM_TITLE,
+  FINAL_EXAM_DESCRIPTION,
+  FINAL_EXAM_TIME_LIMIT_MINUTES,
+  FINAL_EXAM_PASSING_SCORE,
+  FINAL_EXAM_MAX_ATTEMPTS,
+} from './final-exam'
 
 /** All 12 modules (Module 0 = onboarding, Modules 1-10 = core, Module 11 = capstone). */
 export const M2C_MODULES: M2cModuleData[] = [
@@ -104,6 +112,11 @@ export async function ensureMathToCodingCourse() {
     `UPDATE courses c SET instructor_id = $1 WHERE c.id = $2 AND c.instructor_id IN (SELECT id FROM users WHERE role = 'admin')`,
     [instructorId, courseId]
   )
+  // lesson_count is a denormalised display field — keep it true to the source.
+  await query(
+    'UPDATE courses SET lesson_count = $1 WHERE id = $2 AND lesson_count IS DISTINCT FROM $1',
+    [M2C_LESSON_COUNT, courseId]
+  )
 
   const { rows: demoStudents } = await query<{ id: string }>(
     "SELECT id FROM users WHERE email IN ('kolade@gmail.com', 'amaka@gmail.com') AND role = 'student'"
@@ -119,24 +132,45 @@ export async function ensureMathToCodingCourse() {
     'SELECT COUNT(*)::text AS count FROM modules WHERE course_id = $1',
     [courseId]
   )
-  if (Number(moduleCount[0].count) > 0) {
-    console.log(`  Mathematics to Coding already seeded (${moduleCount[0].count} modules).`)
-    return
-  }
 
+  // Converge rather than "insert once": an interrupted seed would otherwise leave
+  // this course permanently half-built (the exact failure that hit HTML & CSS
+  // Fundamentals), so every module and lesson is located by position and only
+  // created when it is actually missing. Nothing is ever deleted.
   for (const [modulePosition, module] of M2C_MODULES.entries()) {
-    const { rows: insertedModules } = await query<{ id: string }>(
-      'INSERT INTO modules (course_id, title, position) VALUES ($1, $2, $3) RETURNING id',
-      [courseId, module.title, modulePosition]
+    const { rows: existingModules } = await query<{ id: string; title: string }>(
+      'SELECT id, title FROM modules WHERE course_id = $1 AND position = $2 LIMIT 1',
+      [courseId, modulePosition]
     )
-    const moduleId = insertedModules[0].id
+    let moduleId: string | undefined = existingModules[0]?.id
+    // A module in the right position but with the wrong title belongs to an
+    // earlier generation of this curriculum — replace it rather than keep it.
+    if (moduleId && existingModules[0].title !== module.title) {
+      await replaceStaleModule(moduleId, module.title)
+      moduleId = undefined
+    }
+    if (!moduleId) {
+      const { rows: insertedModules } = await query<{ id: string }>(
+        'INSERT INTO modules (course_id, title, position) VALUES ($1, $2, $3) RETURNING id',
+        [courseId, module.title, modulePosition]
+      )
+      moduleId = insertedModules[0].id
+    }
+
     let lastLessonId: string | null = null
     for (const [lessonPosition, lesson] of module.lessons.entries()) {
-      const { rows: insertedLessons } = await query<{ id: string }>(
-        'INSERT INTO lessons (module_id, title, content, duration, position) VALUES ($1, $2, $3, $4, $5) RETURNING id',
-        [moduleId, lesson.title, lesson.content, lesson.duration, lessonPosition]
+      const { rows: existingLessons } = await query<{ id: string }>(
+        'SELECT id FROM lessons WHERE module_id = $1 AND position = $2 LIMIT 1',
+        [moduleId, lessonPosition]
       )
-      const lessonId = insertedLessons[0].id
+      let lessonId = existingLessons[0]?.id
+      if (!lessonId) {
+        const { rows: insertedLessons } = await query<{ id: string }>(
+          'INSERT INTO lessons (module_id, title, content, duration, position) VALUES ($1, $2, $3, $4, $5) RETURNING id',
+          [moduleId, lesson.title, lesson.content, lesson.duration, lessonPosition]
+        )
+        lessonId = insertedLessons[0].id
+      }
       lastLessonId = lessonId
       await ensureLessonQuiz(lessonId, courseId, lesson, instructorId)
     }
@@ -147,7 +181,78 @@ export async function ensureMathToCodingCourse() {
       await ensureModuleAssignment(lastLessonId, courseId, module.assignment)
     }
   }
-  console.log(`  Seeded Mathematics to Coding (${M2C_MODULES.length} modules, ${M2C_LESSON_COUNT} lessons).`)
+  console.log(`  Seeded Mathematics to Coding (${M2C_MODULES.length} modules, ${M2C_LESSON_COUNT} lessons; modules already existed: ${Number(moduleCount[0].count)}).`)
+
+  // Course-level final exam (module_id and lesson_id are NULL — the established
+  // pattern for course-level quizzes, see seed.ts "Practice exams"). Located by
+  // (course_id, title) so re-seeding never duplicates it.
+  await ensureFinalExam(courseId, instructorId)
+}
+
+// Persists the 53-item final-exam bank as a course-level quiz.
+async function ensureFinalExam(courseId: string, instructorId: string) {
+  const { rows: existing } = await query<{ id: string }>(
+    'SELECT id FROM quizzes WHERE course_id = $1 AND lesson_id IS NULL AND title = $2 LIMIT 1',
+    [courseId, FINAL_EXAM_TITLE]
+  )
+  if (existing[0]) return
+
+  const { rows: quizzes } = await query<{ id: string }>(
+    `INSERT INTO quizzes (course_id, module_id, lesson_id, title, description, time_limit, passing_score, max_attempts, shuffle_questions, show_results, created_by)
+     VALUES ($1, NULL, NULL, $2, $3, $4, $5, $6, false, true, $7) RETURNING id`,
+    [
+      courseId,
+      FINAL_EXAM_TITLE,
+      FINAL_EXAM_DESCRIPTION,
+      FINAL_EXAM_TIME_LIMIT_MINUTES,
+      FINAL_EXAM_PASSING_SCORE,
+      FINAL_EXAM_MAX_ATTEMPTS,
+      instructorId,
+    ]
+  )
+  const quizId = quizzes[0].id
+
+  let position = 0
+  for (const q of FINAL_EXAM_ALL_QUESTIONS) {
+    await query(
+      `INSERT INTO quiz_questions (quiz_id, question_text, question_type, options, correct_answer, points, position)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+      [
+        quizId,
+        q.questionText,
+        q.questionType,
+        q.options ? JSON.stringify(q.options) : null,
+        q.correctAnswer,
+        q.points ?? 1,
+        position++,
+      ]
+    )
+  }
+  console.log(`    final exam persisted (${FINAL_EXAM_ALL_QUESTIONS.length} questions).`)
+}
+
+// Replaces a module left behind by an earlier generation of this curriculum.
+// `quizzes.lesson_id` is ON DELETE SET NULL (not CASCADE), so the stale module's
+// quizzes are removed explicitly first — otherwise deleting the module would
+// orphan them, and an orphaned quiz (lesson_id NULL) is indistinguishable from a
+// legitimate course-level quiz such as a final exam.
+async function replaceStaleModule(moduleId: string, newTitle: string) {
+  const { rows: removedQuizzes } = await query<{ id: string }>(
+    `DELETE FROM quizzes
+      WHERE module_id = $1
+         OR lesson_id IN (SELECT id FROM lessons WHERE module_id = $1)
+      RETURNING id`,
+    [moduleId]
+  )
+  const { rows: removedModule } = await query<{ id: string }>(
+    'DELETE FROM modules WHERE id = $1 RETURNING id',
+    [moduleId]
+  )
+  if (removedModule[0]) {
+    console.log(
+      `    replaced stale module with "${newTitle}" (removed ${removedQuizzes.length} stale quiz/quiz-bank rows)`
+    )
+  }
 }
 
 // Per-lesson quiz (located by lesson_id + title so re-seeding never duplicates).

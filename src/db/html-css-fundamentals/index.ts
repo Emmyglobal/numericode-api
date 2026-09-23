@@ -5,7 +5,7 @@
 // inside Markdown content; assignments are declared once per module.
 
 import { query } from '../pool'
-import type { HcfModuleData, HcfLessonData, HcfAssignmentData } from './types'
+import type { HcfModuleData, HcfLessonData, HcfAssignmentData, HcfQuizData } from './types'
 import { module00 } from './module-00'
 import { module01 } from './module-01'
 import { module02 } from './module-02'
@@ -185,6 +185,12 @@ export async function ensureHtmlCssFundamentalsCourse() {
     `UPDATE courses c SET instructor_id = $1 WHERE c.id = $2 AND c.instructor_id IN (SELECT id FROM users WHERE role = 'admin')`,
     [instructorId, courseId]
   )
+  // lesson_count is a denormalised display field. An earlier partial seed left it
+  // at whatever the old generation contained (18), so it is trued-up here.
+  await query(
+    'UPDATE courses SET lesson_count = $1 WHERE id = $2 AND lesson_count IS DISTINCT FROM $1',
+    [HCF_LESSON_COUNT, courseId]
+  )
 
   const { rows: demoStudents } = await query<{ id: string }>(
     "SELECT id FROM users WHERE email IN ('kolade@gmail.com', 'amaka@gmail.com') AND role = 'student'"
@@ -196,28 +202,45 @@ export async function ensureHtmlCssFundamentalsCourse() {
     )
   }
 
-  const { rows: moduleCount } = await query<{ count: string }>(
-    'SELECT COUNT(*)::text AS count FROM modules WHERE course_id = $1',
-    [courseId]
-  )
-  if (Number(moduleCount[0].count) > 0) {
-    console.log(`  HTML & CSS Fundamentals already seeded (${moduleCount[0].count} modules).`)
-    return
-  }
-
+  // Converge rather than "insert once": an earlier run can be interrupted mid-seed
+  // (which is exactly how this course first landed with only 6 of its 12 modules),
+  // so every module and lesson is located by position and only created when it is
+  // actually missing. Nothing is ever deleted.
   for (const [modulePosition, module] of HCF_MODULES.entries()) {
-    const { rows: insertedModules } = await query<{ id: string }>(
-      'INSERT INTO modules (course_id, title, position) VALUES ($1, $2, $3) RETURNING id',
-      [courseId, module.title, modulePosition]
+    const { rows: existingModules } = await query<{ id: string; title: string }>(
+      'SELECT id, title FROM modules WHERE course_id = $1 AND position = $2 LIMIT 1',
+      [courseId, modulePosition]
     )
-    const moduleId = insertedModules[0].id
+    let moduleId: string | undefined = existingModules[0]?.id
+    // A module in the right position but with the wrong title belongs to an
+    // earlier generation of this curriculum — its lessons describe content that
+    // no longer exists, so the whole module is replaced rather than kept.
+    if (moduleId && existingModules[0].title !== module.title) {
+      await replaceStaleModule(moduleId, module.title)
+      moduleId = undefined
+    }
+    if (!moduleId) {
+      const { rows: insertedModules } = await query<{ id: string }>(
+        'INSERT INTO modules (course_id, title, position) VALUES ($1, $2, $3) RETURNING id',
+        [courseId, module.title, modulePosition]
+      )
+      moduleId = insertedModules[0].id
+    }
+
     let lastLessonId: string | null = null
     for (const [lessonPosition, lesson] of module.lessons.entries()) {
-      const { rows: insertedLessons } = await query<{ id: string }>(
-        'INSERT INTO lessons (module_id, title, content, duration, position) VALUES ($1, $2, $3, $4, $5) RETURNING id',
-        [moduleId, lesson.title, lesson.content, lesson.duration, lessonPosition]
+      const { rows: existingLessons } = await query<{ id: string }>(
+        'SELECT id FROM lessons WHERE module_id = $1 AND position = $2 LIMIT 1',
+        [moduleId, lessonPosition]
       )
-      const lessonId = insertedLessons[0].id
+      let lessonId = existingLessons[0]?.id
+      if (!lessonId) {
+        const { rows: insertedLessons } = await query<{ id: string }>(
+          'INSERT INTO lessons (module_id, title, content, duration, position) VALUES ($1, $2, $3, $4, $5) RETURNING id',
+          [moduleId, lesson.title, lesson.content, lesson.duration, lessonPosition]
+        )
+        lessonId = insertedLessons[0].id
+      }
       lastLessonId = lessonId
       await ensureLessonQuiz(lessonId, courseId, lesson, instructorId)
     }
@@ -228,6 +251,12 @@ export async function ensureHtmlCssFundamentalsCourse() {
       await ensureModuleAssignment(lastLessonId, courseId, module.assignment)
     }
   }
+
+  // Course-level final exam (module_id and lesson_id are NULL — this is the
+  // established pattern for course-level quizzes, see seed.ts "Practice exams").
+  // Located by title so re-seeding never duplicates it.
+  await ensureCourseLevelQuiz(courseId, FINAL_EXAM, instructorId)
+
   console.log(`  Seeded HTML & CSS Fundamentals (${HCF_MODULES.length} modules, ${HCF_LESSON_COUNT} lessons).`)
 }
 
@@ -263,6 +292,78 @@ async function ensureLessonQuiz(
 
   let position = 0
   for (const q of lesson.quiz.questions) {
+    await query(
+      `INSERT INTO quiz_questions (quiz_id, question_text, question_type, options, correct_answer, points, position)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+      [
+        quizId,
+        q.questionText,
+        q.questionType,
+        q.options ? JSON.stringify(q.options) : null,
+        q.correctAnswer,
+        q.points ?? 1,
+        position++,
+      ]
+    )
+  }
+}
+
+// Replaces a module left behind by an earlier generation of this curriculum.
+// Order matters: `quizzes.lesson_id` is ON DELETE SET NULL (not CASCADE), so the
+// stale module's quizzes must be removed explicitly first — otherwise deleting
+// the module would orphan them, and an orphaned quiz (lesson_id NULL) is
+// indistinguishable from a legitimate course-level quiz such as the final exam.
+// `lessons.module_id`, `assignments.lesson_id` and `resources.lesson_id` are all
+// CASCADE, so removing the module clears the rest of its content graph.
+async function replaceStaleModule(moduleId: string, newTitle: string) {
+  const { rows: removedQuizzes } = await query<{ id: string }>(
+    `DELETE FROM quizzes
+      WHERE module_id = $1
+         OR lesson_id IN (SELECT id FROM lessons WHERE module_id = $1)
+      RETURNING id`,
+    [moduleId]
+  )
+  const { rows: removedModule } = await query<{ id: string }>(
+    'DELETE FROM modules WHERE id = $1 RETURNING id',
+    [moduleId]
+  )
+  if (removedModule[0]) {
+    console.log(
+      `    replaced stale module with "${newTitle}" (removed ${removedQuizzes.length} stale quiz/quiz-bank rows)`
+    )
+  }
+}
+
+// Course-level quiz (module_id and lesson_id NULL). Located by (course_id, title)
+// so re-seeding never duplicates it. Used for the final exam.
+async function ensureCourseLevelQuiz(
+  courseId: string,
+  exam: HcfQuizData,
+  instructorId: string
+) {
+  const { rows: existing } = await query<{ id: string }>(
+    'SELECT id FROM quizzes WHERE course_id = $1 AND lesson_id IS NULL AND title = $2 LIMIT 1',
+    [courseId, exam.title]
+  )
+  if (existing[0]) return
+
+  const { rows: quizzes } = await query<{ id: string }>(
+    `INSERT INTO quizzes (course_id, module_id, lesson_id, title, description, time_limit, passing_score, max_attempts, shuffle_questions, show_results, created_by)
+     VALUES ($1, NULL, NULL, $2, $3, $4, $5, $6, false, true, $7) RETURNING id`,
+    [
+      courseId,
+      exam.title,
+      exam.description,
+      exam.timeLimit,
+      exam.passingScore,
+      exam.maxAttempts,
+      instructorId,
+    ]
+  )
+  const quizId = quizzes[0].id
+
+  let position = 0
+  for (const q of exam.questions) {
     await query(
       `INSERT INTO quiz_questions (quiz_id, question_text, question_type, options, correct_answer, points, position)
        VALUES ($1, $2, $3, $4, $5, $6, $7)`,

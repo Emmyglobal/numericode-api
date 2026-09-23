@@ -85,20 +85,34 @@ export async function ensureSs1ThirdTermCourse() {
 
   // Previously this returned early whenever the course already had any modules.
   // That turned an interrupted seed into a permanently half-built course, so the
-  // loop below now converges on the desired structure instead.
-
+    // Converge rather than "insert once": an earlier run can be interrupted mid-seed,
+  // so every module and lesson is located by position and only created when missing.
   for (const [modulePosition, module] of SS1_MODULES.entries()) {
-    const { rows: insertedModules } = await query<{ id: string }>(
-      'INSERT INTO modules (course_id, title, position) VALUES ($1, $2, $3) RETURNING id',
-      [courseId, module.title, modulePosition]
+    const { rows: existingModules } = await query<{ id: string }>(
+      'SELECT id FROM modules WHERE course_id = $1 AND position = $2 LIMIT 1',
+      [courseId, modulePosition]
     )
-    const moduleId = insertedModules[0].id
-    for (const [lessonPosition, lesson] of module.lessons.entries()) {
-      const { rows: insertedLessons } = await query<{ id: string }>(
-        'INSERT INTO lessons (module_id, title, content, duration, position) VALUES ($1, $2, $3, $4, $5) RETURNING id',
-        [moduleId, lesson.title, lesson.content, lesson.duration, lessonPosition]
+    let moduleId = existingModules[0]?.id
+    if (!moduleId) {
+      const { rows: insertedModules } = await query<{ id: string }>(
+        'INSERT INTO modules (course_id, title, position) VALUES ($1, $2, $3) RETURNING id',
+        [courseId, module.title, modulePosition]
       )
-      const lessonId = insertedLessons[0].id
+      moduleId = insertedModules[0].id
+    }
+    for (const [lessonPosition, lesson] of module.lessons.entries()) {
+      const { rows: existingLessons } = await query<{ id: string }>(
+        'SELECT id FROM lessons WHERE module_id = $1 AND position = $2 LIMIT 1',
+        [moduleId, lessonPosition]
+      )
+      let lessonId = existingLessons[0]?.id
+      if (!lessonId) {
+        const { rows: insertedLessons } = await query<{ id: string }>(
+          'INSERT INTO lessons (module_id, title, content, duration, position) VALUES ($1, $2, $3, $4, $5) RETURNING id',
+          [moduleId, lesson.title, lesson.content, lesson.duration, lessonPosition]
+        )
+        lessonId = insertedLessons[0].id
+      }
       await query(
         "INSERT INTO resources (lesson_id, title, type, url) VALUES ($1, 'Further practice (Khan Academy Mathematics)', 'link', 'https://www.khanacademy.org/math')",
         [lessonId]
