@@ -355,6 +355,74 @@ export async function requestCourse(req: Request, res: Response, next: NextFunct
   } catch (err) { next(err) }
 }
 
+/**
+ * GET /courses/:id/access  (student)
+ *
+ * Server-authoritative entitlement for the course-detail CTA. The browser must
+ * never decide on its own whether a student may open a premium course: access
+ * comes from an ACTIVE Premium subscription OR a VERIFIED payment for this
+ * exact course (the same predicate as enrolment). A missing enrollment row for
+ * a verified purchaser is repaired here (idempotent), so a legitimate buyer
+ * continues exactly like an enrolled student instead of being pushed back into
+ * checkout.
+ */
+export async function getCourseAccess(req: Request, res: Response, next: NextFunction) {
+  try {
+    const userId = req.user!.userId
+    const courseId = req.params.id
+    const { rows: courses } = await query<Pick<CourseRow, 'id' | 'access_level' | 'premium_enabled'>>(
+      `SELECT id, access_level, premium_enabled FROM courses WHERE id = $1 AND status = 'published'`,
+      [courseId]
+    )
+    if (!courses[0]) return notFound(res, 'Course not found')
+    const course = courses[0]
+
+    const { rows: enrolledRows } = await query<{ id: string }>(
+      'SELECT id FROM enrollments WHERE user_id = $1 AND course_id = $2', [userId, courseId]
+    )
+    let isEnrolled = Boolean(enrolledRows[0])
+
+    // Free courses never gate on entitlement.
+    if (course.access_level !== 'premium') {
+      return ok(res, {
+        courseId, accessLevel: course.access_level, hasAccess: true,
+        isEnrolled, entitledBy: null, premiumEnabled: course.premium_enabled,
+      })
+    }
+
+    // Same single predicate used by enrolment and premium content access. A
+    // verified payment for THIS course is the more specific entitlement, so it
+    // is reported first when both a payment and a subscription exist.
+    const { rows: access } = await query<{ source: 'subscription' | 'payment' }>(
+      `SELECT source FROM (
+         SELECT 'payment' AS source, 0 AS rank FROM payments WHERE user_id = $1 AND course_id = $2 AND status = 'verified'
+         UNION ALL
+         SELECT 'subscription' AS source, 1 AS rank FROM subscriptions WHERE user_id = $1 AND status = 'active' AND ends_at > NOW()
+       ) entitlements
+       ORDER BY rank
+       LIMIT 1`,
+      [userId, courseId]
+    )
+    const entitledBy: 'subscription' | 'payment' | null = access[0]?.source ?? null
+    // A disabled premium course is not accessible to anyone (mirrors the
+    // enrolment gate and the dashboard's access_active rule).
+    const hasAccess = Boolean(entitledBy) && course.premium_enabled
+
+    // Repair a missing enrollment row for a VERIFIED payer (idempotent).
+    // Subscribers enrol through the normal request flow, so they are not
+    // repaired here.
+    if (hasAccess && entitledBy === 'payment' && !isEnrolled) {
+      await query('INSERT INTO enrollments (user_id, course_id) VALUES ($1, $2) ON CONFLICT DO NOTHING', [userId, courseId])
+      isEnrolled = true
+    }
+
+    return ok(res, {
+      courseId, accessLevel: course.access_level, hasAccess,
+      isEnrolled, entitledBy: hasAccess ? entitledBy : null, premiumEnabled: course.premium_enabled,
+    })
+  } catch (err) { next(err) }
+}
+
 export async function getAvailableCoursesForEnrollment(req: Request, res: Response, next: NextFunction) {
   try {
     const userId = req.user!.userId

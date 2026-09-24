@@ -185,3 +185,75 @@ describe('Premium gate — opening course content (GET /api/dashboard/courses/:i
     expect(res.body.data.id).toBe(courseId)
   })
 })
+
+describe('Premium gate — GET /api/courses/:id/access (course-detail CTA)', () => {
+  it('reports access for a VERIFIED payment and repairs a missing enrollment row', async () => {
+    // Isolate from earlier fixtures: only this verified payment exists, so the
+    // reported entitlement source is unambiguous.
+    await query('DELETE FROM subscriptions WHERE user_id = $1', [studentId])
+    await query('DELETE FROM payments WHERE user_id = $1', [studentId])
+    const courseId = await createCourse({ accessLevel: 'premium' })
+    await insertPayment(courseId, 'verified')
+    expect(await isEnrolled(courseId)).toBe(false)
+    const res = await request(app).get(`/api/courses/${courseId}/access`).set(auth())
+    expect(res.status).toBe(200)
+    expect(res.body.data.hasAccess).toBe(true)
+    expect(res.body.data.entitledBy).toBe('payment')
+    expect(res.body.data.isEnrolled).toBe(true)
+    // The repair is real, and a second call stays idempotent.
+    expect(await isEnrolled(courseId)).toBe(true)
+    const again = await request(app).get(`/api/courses/${courseId}/access`).set(auth())
+    expect(again.status).toBe(200)
+    expect(again.body.data.hasAccess).toBe(true)
+    expect(again.body.data.isEnrolled).toBe(true)
+  })
+
+  it('reports access for an ACTIVE subscription without inventing an enrollment row', async () => {
+    const courseId = await createCourse({ accessLevel: 'premium' })
+    await insertSubscription('active', futureDate())
+    const res = await request(app).get(`/api/courses/${courseId}/access`).set(auth())
+    expect(res.status).toBe(200)
+    expect(res.body.data.hasAccess).toBe(true)
+    expect(res.body.data.entitledBy).toBe('subscription')
+    expect(res.body.data.isEnrolled).toBe(false)
+    expect(await isEnrolled(courseId)).toBe(false)
+  })
+
+  it('denies access with no subscription and no verified payment', async () => {
+    // Isolate from earlier fixtures so no access state can leak in.
+    await query('DELETE FROM subscriptions WHERE user_id = $1', [studentId])
+    await query('DELETE FROM payments WHERE user_id = $1', [studentId])
+    const courseId = await createCourse({ accessLevel: 'premium' })
+    const res = await request(app).get(`/api/courses/${courseId}/access`).set(auth())
+    expect(res.status).toBe(200)
+    expect(res.body.data.hasAccess).toBe(false)
+    expect(res.body.data.entitledBy).toBeNull()
+    expect(await isEnrolled(courseId)).toBe(false)
+  })
+
+  it('never treats a bare enrollment row as premium access', async () => {
+    await query('DELETE FROM subscriptions WHERE user_id = $1', [studentId])
+    await query('DELETE FROM payments WHERE user_id = $1', [studentId])
+    const courseId = await createCourse({ accessLevel: 'premium' })
+    await query('INSERT INTO enrollments (user_id, course_id) VALUES ($1, $2) ON CONFLICT DO NOTHING', [studentId, courseId])
+    const res = await request(app).get(`/api/courses/${courseId}/access`).set(auth())
+    expect(res.body.data.hasAccess).toBe(false)
+    expect(res.body.data.isEnrolled).toBe(true)
+  })
+
+  it('a premium course with premium disabled grants no access even after payment', async () => {
+    const courseId = await createCourse({ accessLevel: 'premium', premiumEnabled: false })
+    await insertPayment(courseId, 'verified')
+    const res = await request(app).get(`/api/courses/${courseId}/access`).set(auth())
+    expect(res.body.data.hasAccess).toBe(false)
+    expect(res.body.data.entitledBy).toBeNull()
+    expect(await isEnrolled(courseId)).toBe(false)
+  })
+
+  it('free courses always report access', async () => {
+    const courseId = await createCourse({ accessLevel: 'free' })
+    const res = await request(app).get(`/api/courses/${courseId}/access`).set(auth())
+    expect(res.status).toBe(200)
+    expect(res.body.data.hasAccess).toBe(true)
+  })
+})
