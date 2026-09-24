@@ -138,6 +138,13 @@ describe('Trainer Course CRUD', () => {
     })
     const usersRes = await request(app).get('/api/admin/users').set({ Authorization: `Bearer ${adminToken}` })
     const newUser = usersRes.body.data.find((u: { email: string }) => u.email === email)
+    // Email verification is REQUIRED before login (this suite is not about the
+    // verification flow — stamp the fixture as verified, exactly as clicking the
+    // emailed link would).
+    await query(
+      `UPDATE users SET account_activated = TRUE, email_verified_at = COALESCE(email_verified_at, NOW()) WHERE id = $1`,
+      [newUser.id]
+    )
     await request(app).patch(`/api/admin/users/${newUser.id}`).set({ Authorization: `Bearer ${adminToken}` }).send({ status: 'active' })
     const secondLogin = await request(app).post('/api/auth/login').send({ email, password: 'password123' })
     const secondToken = secondLogin.body.data.token

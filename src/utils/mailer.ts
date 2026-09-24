@@ -377,3 +377,103 @@ export async function sendAccountDeletedEmail(email: string, name: string, reaso
     console.error('SendGrid sendAccountDeletedEmail failed:', err)
   }
 }
+
+/**
+ * Registration verification email — sent immediately when a user registers
+ * (and on re-send). Clicking the link proves the registrant owns the mailbox
+ * (sets account_activated / email_verified_at). Login additionally requires
+ * admin approval, so the copy sets that expectation explicitly.
+ */
+export async function sendEmailVerificationEmail(email: string, name: string, token: string) {
+  const verifyLink = `${CLIENT_URL}/verify-email?token=${token}`
+
+  try {
+    await sendMail({
+      to: email,
+      subject: 'Verify your NumeryCode email address',
+      html: buildHtml('Verify Your Email', `
+        <p style="font-size:16px; color:#374151; line-height:1.6;">Hi <strong>${escapeHtml(name)}</strong>,</p>
+        <p style="font-size:16px; color:#374151; line-height:1.6;">
+          Welcome to NumeryCode! Please confirm this email address belongs to you by clicking the button below:
+        </p>
+        ${ctaButton(verifyLink, 'Verify Email Address')}
+        <p style="font-size:14px; color:#6b7280;">
+          This link will expire in <strong>24 hours</strong>.
+          If you didn't create a NumeryCode account, you can safely ignore this email.
+        </p>
+        <p style="font-size:14px; color:#6b7280;">
+          Verifying your email is the first step. An administrator will also review your
+          registration — you'll be able to log in once your account is approved and your
+          email address is verified.
+        </p>`),
+      text:
+        `Hi ${name},\n\n` +
+        `Welcome to NumeryCode! Please confirm this email address belongs to you:\n\n` +
+        `Verify your email: ${verifyLink}\n\n` +
+        `This link will expire in 24 hours. An administrator will also review your ` +
+        `registration — you can log in once your account is approved and your email address is verified.`,
+    })
+  } catch (err) {
+    console.error('SendGrid sendEmailVerificationEmail failed:', err)
+  }
+}
+
+/**
+ * Sent when an admin approves an account whose email address is ALREADY
+ * verified — the approval was the last remaining step, so no link is needed.
+ */
+export async function sendAccountApprovedEmail(email: string, name: string, role: string) {
+  const loginLink = `${CLIENT_URL}/login`
+
+  try {
+    await sendMail({
+      to: email,
+      subject: 'Your NumeryCode account has been approved',
+      html: buildHtml('Account Approved', `
+        <p style="font-size:16px; color:#374151; line-height:1.6;">Hi <strong>${escapeHtml(name)}</strong>,</p>
+        <p style="font-size:16px; color:#374151; line-height:1.6;">
+          Your <strong>${escapeHtml(role)}</strong> account has been approved and your email address is verified.
+          You can now log in:
+        </p>
+        ${ctaButton(loginLink, 'Log In')}`),
+      text:
+        `Hi ${name},\n\n` +
+        `Your ${role} account has been approved and your email address is verified.\n\n` +
+        `Log in: ${loginLink}`,
+    })
+  } catch (err) {
+    console.error('SendGrid sendAccountApprovedEmail failed:', err)
+  }
+}
+
+/**
+ * Security notice sent after a password reset completes — also confirms that
+ * completing the reset verified the email address (recovery-flow verification).
+ */
+export async function sendPasswordChangedEmail(email: string, name: string) {
+  const loginLink = `${CLIENT_URL}/login`
+
+  try {
+    await sendMail({
+      to: email,
+      subject: 'Your NumeryCode password was changed',
+      html: buildHtml('Password Changed', `
+        <p style="font-size:16px; color:#374151; line-height:1.6;">Hi <strong>${escapeHtml(name)}</strong>,</p>
+        <p style="font-size:16px; color:#374151; line-height:1.6;">
+          Your NumeryCode password was reset successfully, and this email address is now verified.
+        </p>
+        <p style="font-size:16px; color:#374151; line-height:1.6;">
+          If you did not make this change, reset your password again immediately and contact our
+          support team at <a href="mailto:${CONTACT_EMAIL_TO}" style="color:#2563EB;">${CONTACT_EMAIL_TO}</a>.
+        </p>
+        ${ctaButton(loginLink, 'Log In')}`),
+      text:
+        `Hi ${name},\n\n` +
+        `Your NumeryCode password was reset successfully, and this email address is now verified.\n\n` +
+        `If you did not make this change, reset your password again immediately and contact support: ${CONTACT_EMAIL_TO}\n\n` +
+        `Log in: ${loginLink}`,
+    })
+  } catch (err) {
+    console.error('SendGrid sendPasswordChangedEmail failed:', err)
+  }
+}

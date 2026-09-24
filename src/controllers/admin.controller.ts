@@ -1,9 +1,9 @@
 import type { Request, Response, NextFunction } from 'express'
-import crypto from 'crypto'
 import { query, getClient } from '../db/pool'
 import { ok, fail, notFound } from '../utils/response'
 import { notifyUser, notifyAudience } from '../utils/notify'
-import { sendActivationEmail } from '../utils/mailer'
+import { sendActivationEmail, sendAccountApprovedEmail } from '../utils/mailer'
+import { issueVerificationToken, APPROVAL_TOKEN_TTL_MS } from '../utils/verification'
 import type { UserRow, CourseRow, AnnouncementRow } from '../types'
 
 export async function getStats(_req: Request, res: Response, next: NextFunction) {
@@ -110,36 +110,36 @@ export async function updateUser(req: Request, res: Response, next: NextFunction
     if (!beforeRows[0]) return notFound(res, 'User not found')
     const before = beforeRows[0]
 
+    // NOTE: approval deliberately does NOT touch account_activated. Email
+    // verification (a link sent to the user's inbox) is the only thing that sets
+    // that flag — otherwise approving an account would silently skip verification.
     const { rows } = await query<UserRow>(
-      `UPDATE users SET status = COALESCE($1, status), role = COALESCE($2, role), account_activated = CASE WHEN $1 = 'active' THEN TRUE ELSE account_activated END WHERE id = $3 RETURNING *`,
+      `UPDATE users SET status = COALESCE($1, status), role = COALESCE($2, role) WHERE id = $3 RETURNING *`,
       [status, role, req.params.id]
     )
     const u = rows[0]
 
-    // When a user transitions from pending → active, generate activation token and send email.
-    // We also mark the account active immediately so the approved user can sign in without
-    // being trapped behind a stale activation flag on the same approval event.
+    // When a user transitions from pending → active, tell them how to get in.
+    // Approval NEVER verifies an email by itself: the account_activated flag is
+    // only ever set by clicking a link emailed to the user (registration
+    // verification, this approval email, or the password-reset link). Users who
+    // verified at registration can simply log in; unverified users get a fresh
+    // 7-day link (their registration email may be lost or expired).
     if (status === 'active' && before.status === 'pending') {
-      // Generate a secure activation token (expires in 7 days)
-      const activationToken = crypto.randomBytes(32).toString('hex')
-      const tokenHash = crypto.createHash('sha256').update(activationToken).digest('hex')
-      const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000) // 7 days
-
-      await query(
-        `INSERT INTO activation_tokens (user_id, token, expires_at)
-         VALUES ($1, $2, $3)`,
-        [u.id, tokenHash, expiresAt]
-      )
-
-      // Send activation email (non-blocking — don't let email failures break approval)
-      console.log('Sending activation email to:', u.email)
-      sendActivationEmail(u.email, u.name, u.role, activationToken).catch(err => {
-        console.error('Activation email error:', err)
-      })
-
-      // In-app notification
-      await notifyUser(u.id, `Your ${u.role} account was approved!`,
-        'Please check your email and click the activation link to access your dashboard.', 'general')
+      if (u.account_activated) {
+        sendAccountApprovedEmail(u.email, u.name, u.role).catch(err => {
+          console.error('Approval email error:', err)
+        })
+        await notifyUser(u.id, `Your ${u.role} account was approved!`,
+          'You can now log in with the email and password you registered with.', 'general')
+      } else {
+        const activationToken = await issueVerificationToken(u.id, APPROVAL_TOKEN_TTL_MS)
+        sendActivationEmail(u.email, u.name, u.role, activationToken).catch(err => {
+          console.error('Activation email error:', err)
+        })
+        await notifyUser(u.id, `Your ${u.role} account was approved!`,
+          'Please check your email and click the verification link to access your dashboard.', 'general')
+      }
     } else if (status === 'suspended' && before.status !== 'suspended') {
       await notifyUser(u.id, 'Your account was suspended',
         'Contact platform support if you believe this is a mistake.', 'general')

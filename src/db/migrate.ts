@@ -25,6 +25,15 @@ try {
       ALTER TABLE users ADD COLUMN IF NOT EXISTS avatar_url TEXT;
       ALTER TABLE users ADD COLUMN IF NOT EXISTS account_activated BOOLEAN NOT NULL DEFAULT FALSE;
       ALTER TABLE users ADD COLUMN IF NOT EXISTS google_id VARCHAR(255) UNIQUE;
+      -- Email verification — WHEN the user proved ownership of their email address.
+      -- account_activated remains the single login gate (the flag the activation
+      -- flow has always set); email_verified_at records the moment it happened
+      -- (verification link, password reset, or Google sign-in) for audit.
+      ALTER TABLE users ADD COLUMN IF NOT EXISTS email_verified_at TIMESTAMPTZ;
+      -- Backfill: pre-existing activated accounts keep working — their owners
+      -- already proved mailbox ownership under the previous activation flow.
+      UPDATE users SET email_verified_at = COALESCE(last_active, created_at)
+       WHERE account_activated = TRUE AND email_verified_at IS NULL;
 
       -- Courses
       CREATE TABLE IF NOT EXISTS courses (

@@ -6,7 +6,8 @@ import { getClient, query } from '../db/pool'
 import { signToken } from '../utils/jwt'
 import { ok, fail, unauthorized } from '../utils/response'
 import { notifyRole } from '../utils/notify'
-import { sendPasswordResetEmail, sendAdminApprovalEmail } from '../utils/mailer'
+import { sendPasswordResetEmail, sendAdminApprovalEmail, sendEmailVerificationEmail, sendPasswordChangedEmail } from '../utils/mailer'
+import { hashVerificationToken, issueVerificationToken } from '../utils/verification'
 import type { UserRow, AuthUser } from '../types'
 
 function toAuthUser(row: UserRow): AuthUser {
@@ -96,10 +97,10 @@ export async function login(req: Request, res: Response, next: NextFunction) {
 
     if (user.status === 'suspended') return unauthorized(res, 'This account has been suspended')
     if (user.status === 'pending') {
-      return unauthorized(res, 'Your account is awaiting admin approval. You will receive an email once your account is approved.')
+      return unauthorized(res, 'Your account is awaiting admin approval. Please verify your email address in the meantime — check your inbox for the verification link.')
     }
     if (user.status === 'active' && !user.account_activated) {
-      return unauthorized(res, 'Your account has been approved but not yet activated. Please check your email for the activation link.')
+      return unauthorized(res, 'Your email address has not been verified yet. Please check your inbox for the verification link, or request a new one from the login page.')
     }
 
     await query('UPDATE users SET last_active = NOW() WHERE id = $1', [user.id])
@@ -252,10 +253,20 @@ export async function register(req: Request, res: Response, next: NextFunction) 
       role: finalRole,
     }).catch(() => {})
 
+    // ── Email verification (self-service) ────────────────────────────────────
+    // A verification link is emailed immediately at registration (24 h). Clicking
+    // it proves the address belongs to the registrant and sets account_activated,
+    // which — together with admin approval — is required before login. Issuing the
+    // token is awaited (a DB write); sending is fire-and-forget so a mail-provider
+    // outage never fails the registration itself.
+    const verificationToken = await issueVerificationToken(user.id)
+    sendEmailVerificationEmail(user.email, user.name, verificationToken).catch(() => {})
+
     // User is pending — do not issue a login token yet
     return ok(res, { 
       pendingApproval: true, 
-      message: 'Your account has been created and is awaiting admin approval. You will receive an email once approved.' 
+      verificationEmailSent: true,
+      message: `Your account has been created. We emailed a verification link to ${user.email} — please verify your email address. An administrator will also review your registration; you can log in once it is approved and your email is verified.`
     }, 201)
 
   } catch (err) { next(err) }
@@ -265,9 +276,10 @@ export async function forgotPassword(req: Request, res: Response, next: NextFunc
   try {
     const { email } = req.body as { email?: string }
     if (!email) return fail(res, 'Email is required', 400)
+    const normalizedEmail = email.trim().toLowerCase()
 
     // Always return the same response whether the email exists or not (security best practice)
-    const { rows } = await query<UserRow>('SELECT id, name, email FROM users WHERE email = $1', [email])
+    const { rows } = await query<UserRow>('SELECT id, name, email FROM users WHERE email = $1', [normalizedEmail])
 
     if (rows.length > 0) {
       const user = rows[0]
@@ -327,8 +339,15 @@ export async function resetPassword(req: Request, res: Response, next: NextFunct
     try {
       await client.query('BEGIN')
 
+      // Completing a reset proves the requester controls the mailbox (the link is
+      // only ever sent by email), so the address is verified in the same step.
+      // This is the "email verification on password recovery" path: an account
+      // that recovers its password comes out of the flow verified.
       await client.query(
-        'UPDATE users SET password_hash = $1 WHERE id = $2',
+        `UPDATE users SET password_hash = $1,
+                          account_activated = TRUE,
+                          email_verified_at = COALESCE(email_verified_at, NOW())
+         WHERE id = $2`,
         [passwordHash, resetRecord.user_id]
       )
 
@@ -345,44 +364,46 @@ export async function resetPassword(req: Request, res: Response, next: NextFunct
       client.release()
     }
 
+    // Security notice (fire-and-forget) — also confirms the address is verified.
+    const { rows: userRows } = await query<{ name: string; email: string }>(
+      'SELECT name, email FROM users WHERE id = $1',
+      [resetRecord.user_id]
+    )
+    if (userRows[0]) sendPasswordChangedEmail(userRows[0].email, userRows[0].name).catch(() => {})
+
     return ok(res, { message: 'Password has been reset successfully. You can now log in with your new password.' }, 200)
   } catch (err) { next(err) }
 }
 
-export async function activateAccount(req: Request, res: Response, next: NextFunction) {
+export async function verifyEmail(req: Request, res: Response, next: NextFunction) {
   try {
     const { token } = req.body as { token?: string }
-    if (!token) return fail(res, 'Activation token is required', 400)
+    if (!token) return fail(res, 'Verification token is required', 400)
 
-    const tokenHash = crypto.createHash('sha256').update(token).digest('hex')
-
-    const { rows: tokenRows } = await query<{ user_id: string; expires_at: Date; used: boolean }>(
-      `SELECT user_id, expires_at, used FROM activation_tokens
-       WHERE token = $1 AND used = FALSE AND expires_at > NOW()
-       ORDER BY created_at DESC LIMIT 1`,
-      [tokenHash]
-    )
-
-    if (tokenRows.length === 0) {
-      return fail(res, 'Invalid or expired activation token', 400)
-    }
-
-    const activationRecord = tokenRows[0]
+    const tokenHash = hashVerificationToken(token)
 
     const client = await getClient()
     try {
       await client.query('BEGIN')
 
-      // Set account_activated = true
-      await client.query(
-        'UPDATE users SET account_activated = TRUE WHERE id = $1',
-        [activationRecord.user_id]
-      )
-
-      // Mark token as used
-      await client.query(
-        'UPDATE activation_tokens SET used = TRUE WHERE token = $1',
+      // Atomic single-use consumption: only ONE concurrent request can flip
+      // used = FALSE → TRUE for a valid, unexpired token.
+      const { rows } = await client.query<{ user_id: string }>(
+        `UPDATE activation_tokens SET used = TRUE
+         WHERE token = $1 AND used = FALSE AND expires_at > NOW()
+         RETURNING user_id`,
         [tokenHash]
+      )
+      if (!rows[0]) {
+        await client.query('ROLLBACK')
+        return fail(res, 'Invalid or expired verification link', 400)
+      }
+
+      await client.query(
+        `UPDATE users SET account_activated = TRUE,
+                          email_verified_at = COALESCE(email_verified_at, NOW())
+         WHERE id = $1`,
+        [rows[0].user_id]
       )
 
       await client.query('COMMIT')
@@ -393,7 +414,36 @@ export async function activateAccount(req: Request, res: Response, next: NextFun
       client.release()
     }
 
-    return ok(res, { message: 'Account activated successfully. You can now log in.' }, 200)
+    return ok(res, { message: 'Email verified successfully. You can now log in as soon as your account has been approved.' }, 200)
+  } catch (err) { next(err) }
+}
+
+/**
+ * Backward-compatible alias — legacy approval emails link to `/activate`, which
+ * calls POST /auth/activate-account. Same behaviour as verifyEmail.
+ */
+export const activateAccount = verifyEmail
+
+/**
+ * Re-sends the registration verification email. Always responds identically
+ * (never reveals whether an account exists) and silently ignores unknown,
+ * suspended, or already-verified addresses.
+ */
+export async function resendVerification(req: Request, res: Response, next: NextFunction) {
+  try {
+    const { email } = req.body as { email?: string }
+    if (!email) return fail(res, 'Email is required', 400)
+
+    const normalizedEmail = email.trim().toLowerCase()
+    const { rows } = await query<UserRow>('SELECT * FROM users WHERE email = $1', [normalizedEmail])
+    const user = rows[0]
+
+    if (user && user.status !== 'suspended' && !user.account_activated) {
+      const token = await issueVerificationToken(user.id)
+      sendEmailVerificationEmail(user.email, user.name, token).catch(() => {})
+    }
+
+    return ok(res, { message: 'If an account with that email exists and is not yet verified, a new verification link has been sent.' }, 200)
   } catch (err) { next(err) }
 }
 
@@ -516,8 +566,8 @@ export async function googleCallback(req: Request, res: Response, next: NextFunc
         // 3. Create a new user — auto-approved since Google is a trusted IdP
         const placeholderHash = await bcrypt.hash(crypto.randomBytes(32).toString('hex'), 10)
         const { rows: newRows } = await query<UserRow>(
-          `INSERT INTO users (name, email, password_hash, role, status, account_activated, avatar_url, google_id)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING *`,
+          `INSERT INTO users (name, email, password_hash, role, status, account_activated, avatar_url, google_id, email_verified_at)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW()) RETURNING *`,
           [name, email, placeholderHash, 'student', 'active', true, avatarUrl, googleId]
         )
         user = newRows[0]

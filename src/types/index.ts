@@ -15,6 +15,8 @@ export type AnnouncementAudience = 'all' | 'students' | 'trainers'
 export interface UserRow {
   id: string; name: string; email: string; password_hash: string
   role: UserRole; status: UserStatus; bio: string; avatar_url: string | null; created_at: Date; last_active: Date; account_activated: boolean
+  /** When the user's email address was proven (verification link, reset, Google). NULL = never verified. */
+  email_verified_at: Date | null
 }
 export interface CourseRow {
   id: string; title: string; description: string; content: string; subject: Subject
