@@ -165,17 +165,22 @@ describe('payments: price integrity (server-authoritative)', () => {
     expect(res.status).toBe(403)
   })
 
-  it('409 — student with verified access is never charged again', async () => {
+  it('repairs a verified payment that has no enrollment row without charging again', async () => {
     const course = await createCourse()
-    // A verified payment (granting real access) must block a second charge.
     await query(
       `INSERT INTO payments (user_id, course_id, reference, email, amount_subunits, currency, status)
        VALUES ($1, $2, $3, 'kolade@gmail.com', 50000, 'NGN', 'verified')`,
-      [studentId, course.id, `NCP-TEST-VER-${Date.now()}`]
+      [studentId, course.id, `NCP-ORPHAN-VER-${Date.now()}`]
     )
+
     const res = await request(app).post('/api/payments/initiate').set(auth()).send({ courseId: course.id })
-    expect(res.status).toBe(409)
-    expect(res.body.message).toMatch(/already have access/i)
+    expect(res.status).toBe(200)
+    expect(res.body.data.alreadyHasAccess).toBe(true)
+    expect(res.body.data.enrollmentGranted).toBe(true)
+    expect(res.body.data.courseId).toBe(course.id)
+
+    const { rows } = await query('SELECT 1 FROM enrollments WHERE user_id = $1 AND course_id = $2', [studentId, course.id])
+    expect(rows.length).toBe(1)
   })
 
   it('201 — a bare enrollment (no payment/subscription) does NOT block checkout', async () => {
@@ -327,14 +332,20 @@ describe('payments: initialization and verification', () => {
     expect(res.status).toBe(404)
   })
 
-  it('409 — cannot re-initiate for a course with verified payment (already has access)', async () => {
+  it('repairs an orphaned verified payment when checkout is retried', async () => {
     const course = await createCourse()
     const first = await request(app).post('/api/payments/initiate').set(auth()).send({ courseId: course.id })
     expect(first.status).toBe(201)
     await query(`UPDATE payments SET status = 'verified' WHERE reference = $1`, [first.body.data.reference])
+    const { rows: before } = await query('SELECT 1 FROM enrollments WHERE user_id = $1 AND course_id = $2', [studentId, course.id])
+    expect(before.length).toBe(0)
+
     const second = await request(app).post('/api/payments/initiate').set(auth()).send({ courseId: course.id })
-    expect(second.status).toBe(409)
-    expect(second.body.message).toMatch(/already have access/i)
+    expect(second.status).toBe(200)
+    expect(second.body.data.alreadyHasAccess).toBe(true)
+    expect(second.body.data.enrollmentGranted).toBe(true)
+    const { rows: after } = await query('SELECT 1 FROM enrollments WHERE user_id = $1 AND course_id = $2', [studentId, course.id])
+    expect(after.length).toBe(1)
   })
 })
 

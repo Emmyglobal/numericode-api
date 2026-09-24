@@ -47,7 +47,7 @@ interface CoursePricingRow {
 }
 
 /** Grant access through the EXISTING enrollment mechanism (idempotent). */
-async function grantEnrollmentForPayment(payment: PaymentRow): Promise<void> {
+async function grantEnrollmentForPayment(payment: Pick<PaymentRow, 'user_id' | 'course_id'>): Promise<void> {
   await query(
     'INSERT INTO enrollments (user_id, course_id) VALUES ($1, $2) ON CONFLICT (user_id, course_id) DO NOTHING',
     [payment.user_id, payment.course_id]
@@ -140,9 +140,6 @@ export async function initiateCoursePayment(req: Request, res: Response, next: N
   try {
     const { courseId } = req.body as { courseId?: string }
     if (!courseId || !UUID_RE.test(courseId)) return fail(res, 'A valid courseId is required', 400)
-    if (!isPaystackConfigured()) {
-      return fail(res, 'Payments are temporarily unavailable. Please try again later.', 503)
-    }
 
     // Authoritative course load: exists, published, premium, purchasable.
     const { rows: courses } = await query<CoursePricingRow>(
@@ -169,7 +166,34 @@ export async function initiateCoursePayment(req: Request, res: Response, next: N
        LIMIT 1`,
       [req.user!.userId, courseId]
     )
-    if (access[0]) return fail(res, 'You already have access to this course', 409)
+    if (access[0]) {
+      // A verified payment is an entitlement even if an earlier process
+      // stopped after the payment update but before creating enrollment. Repair
+      // that row before responding, so a legitimate purchaser can continue
+      // without being charged again or seeing a confusing 409.
+      const { rows: verifiedPayment } = await query<Pick<PaymentRow, 'user_id' | 'course_id'>>(
+        `SELECT user_id, course_id FROM payments
+          WHERE user_id = $1 AND course_id = $2 AND status = 'verified'
+          LIMIT 1`,
+        [req.user!.userId, courseId]
+      )
+      if (verifiedPayment[0]) {
+        await grantEnrollmentForPayment(verifiedPayment[0])
+        return ok(res, {
+          enrollmentGranted: true,
+          alreadyHasAccess: true,
+          courseId,
+          courseTitle: course.title,
+        })
+      }
+      return fail(res, 'You already have access to this course', 409)
+    }
+
+    // Only a new checkout needs the provider. Existing verified payments were
+    // repaired above even if the provider is temporarily unavailable.
+    if (!isPaystackConfigured()) {
+      return fail(res, 'Payments are temporarily unavailable. Please try again later.', 503)
+    }
 
     const { rows: users } = await query<{ email: string }>('SELECT email FROM users WHERE id = $1', [req.user!.userId])
     if (!users[0]?.email) return fail(res, 'Your account has no email — checkout cannot start', 400)
