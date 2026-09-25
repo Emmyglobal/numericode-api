@@ -428,8 +428,13 @@ export async function getAvailableCoursesForEnrollment(req: Request, res: Respon
     const userId = req.user!.userId
     const { teacherId } = req.query as { teacherId?: string }
 
-    let { rows } = await query<{ id: string; title: string; subject: string; level: string; instructor_name: string; instructor_id: string }>(
-      `SELECT c.id, c.title, c.subject, c.level, u.name AS instructor_name, c.instructor_id
+    let { rows } = await query<{
+      id: string; title: string; subject: string; level: string
+      instructor_name: string; instructor_id: string
+      access_level: string; price_cents: number; currency: string; premium_enabled: boolean
+    }>(
+      `SELECT c.id, c.title, c.subject, c.level, u.name AS instructor_name, c.instructor_id,
+              c.access_level, c.price_cents, c.currency, c.premium_enabled
        FROM courses c
        JOIN users u ON u.id = c.instructor_id
        WHERE c.status = 'published'
@@ -439,6 +444,9 @@ export async function getAvailableCoursesForEnrollment(req: Request, res: Respon
       teacherId ? [userId, teacherId] : [userId]
     )
 
+    // Premium courses are deliberately INCLUDED, with pricing, so the dashboard
+    // can offer a direct "Pay ₦X & Enroll" action instead of letting the student
+    // select one and hit the premium-enrolment 403 dead-end.
     return ok(res, rows.map(r => ({
       id: r.id,
       title: r.title,
@@ -446,6 +454,10 @@ export async function getAvailableCoursesForEnrollment(req: Request, res: Respon
       level: r.level,
       instructorName: r.instructor_name,
       instructorId: r.instructor_id,
+      accessLevel: r.access_level,
+      priceCents: r.price_cents,
+      currency: r.currency,
+      premiumEnabled: r.premium_enabled,
     })))
   } catch (err) { next(err) }
 }

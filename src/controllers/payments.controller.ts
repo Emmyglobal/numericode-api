@@ -3,11 +3,10 @@ import type { NextFunction, Request, Response } from 'express'
 import { query } from '../db/pool'
 import { fail, forbidden, notFound, ok, created } from '../utils/response'
 import {
-  initializeTransaction,
-  verifyTransaction,
-  verifyWebhookSignature,
-  isPaystackConfigured,
-} from '../services/paystack.service'
+  getActiveProvider,
+  getProviderByName,
+  type NormalizedVerification,
+} from '../services/payment-provider'
 
 // ─── Payments controller (Phase 16 — premium-course checkout) ─────────────────
 // Invariants enforced here:
@@ -25,6 +24,7 @@ interface PaymentRow {
   id: string
   user_id: string
   course_id: string
+  provider: string
   reference: string
   provider_reference: string | null
   email: string
@@ -54,25 +54,34 @@ async function grantEnrollmentForPayment(payment: Pick<PaymentRow, 'user_id' | '
   )
 }
 
+/** Terminal failure for a non-terminal payment (idempotent — never touches a verified row). */
+async function markPaymentFailed(payment: PaymentRow, reason: string): Promise<PaymentRow> {
+  const { rows } = await query<PaymentRow>(
+    `UPDATE payments SET status = 'failed', failure_reason = $2, updated_at = NOW() WHERE id = $1 AND status IN ('pending','abandoned') RETURNING *`,
+    [payment.id, reason]
+  )
+  return rows[0] ?? { ...payment, status: 'failed', failure_reason: reason }
+}
+
 /**
- * The single trusted transition into 'verified'. Validates amount/currency
- * against the persisted payment record, then flips status atomically
- * ('pending' → 'verified') and grants enrollment. Safe to call from BOTH the
- * webhook and the status-verification path — one of them wins the atomic
+ * The single trusted transition into 'verified'. Validates reference, amount and
+ * currency against the persisted payment record, then flips status atomically
+ * ('pending'/'abandoned' → 'verified') and grants enrollment. Safe to call from
+ * BOTH the webhook and the status-verification path — one of them wins the atomic
  * update, the other sees the row already verified and does nothing.
  */
 async function applyVerifiedPayment(
   payment: PaymentRow,
-  verified: { amountSubunits: number; currency: string; providerReference: string | null; paidAt: string | null }
+  verified: { reference?: string; amountSubunits: number; currency: string; providerReference: string | null; paidAt: string | null }
 ): Promise<PaymentRow> {
+  // Reference integrity: a trusted provider response must echo back OUR reference.
+  if (verified.reference && verified.reference !== payment.reference) {
+    return markPaymentFailed(payment, `Transaction reference mismatch: expected ${payment.reference}, got ${verified.reference}`)
+  }
   // Price integrity: the provider must confirm the exact stored amount/currency.
   if (verified.amountSubunits !== payment.amount_subunits || verified.currency !== payment.currency) {
     const reason = `Amount/currency mismatch: expected ${payment.amount_subunits} ${payment.currency}, got ${verified.amountSubunits} ${verified.currency}`
-    await query(
-      `UPDATE payments SET status = 'failed', failure_reason = $2, updated_at = NOW() WHERE id = $1 AND status IN ('pending','abandoned')`,
-      [payment.id, reason]
-    )
-    return { ...payment, status: 'failed', failure_reason: reason }
+    return markPaymentFailed(payment, reason)
   }
 
   // Atomic idempotent transition: only a non-terminal ('pending'/'abandoned')
@@ -101,11 +110,16 @@ async function applyVerifiedPayment(
   return rows[0]
 }
 
-/** Ask Paystack for the truth about a pending payment (status endpoint path). */
+/**
+ * Ask the payment record's OWN provider for the truth about a pending payment
+ * (status endpoint path). Dispatching on payment.provider keeps earlier Paystack
+ * payments verifiable even after PAYMENT_PROVIDER switches to flutterwave.
+ */
 async function reconcilePendingPayment(payment: PaymentRow): Promise<PaymentRow> {
-  let verification
+  const provider = getProviderByName(payment.provider)
+  let verification: NormalizedVerification
   try {
-    verification = await verifyTransaction(payment.reference)
+    verification = await provider.verifyTransaction(payment.reference)
     if (!verification || typeof verification.status !== 'string') {
       return payment // malformed provider response — stay pending; webhook remains authoritative
     }
@@ -115,6 +129,7 @@ async function reconcilePendingPayment(payment: PaymentRow): Promise<PaymentRow>
   }
   if (verification.status === 'success') {
     return applyVerifiedPayment(payment, {
+      reference: verification.reference,
       amountSubunits: verification.amountSubunits,
       currency: verification.currency,
       providerReference: verification.providerTransactionId,
@@ -190,25 +205,31 @@ export async function initiateCoursePayment(req: Request, res: Response, next: N
     }
 
     // Only a new checkout needs the provider. Existing verified payments were
-    // repaired above even if the provider is temporarily unavailable.
-    if (!isPaystackConfigured()) {
+    // repaired above even if the ACTIVE provider is temporarily unavailable.
+    const provider = getActiveProvider()
+    if (!provider.isConfigured()) {
       return fail(res, 'Payments are temporarily unavailable. Please try again later.', 503)
     }
 
-    const { rows: users } = await query<{ email: string }>('SELECT email FROM users WHERE id = $1', [req.user!.userId])
+    const { rows: users } = await query<{ email: string; name: string | null }>(
+      'SELECT email, name FROM users WHERE id = $1',
+      [req.user!.userId]
+    )
     if (!users[0]?.email) return fail(res, 'Your account has no email — checkout cannot start', 400)
 
-    // Internal reference: Paystack allows only alphanumerics, '-', '.', '='.
+    // Internal reference (unique tx_ref / Paystack reference): alphanumerics and
+    // '-' only, so it is valid for both providers and safe in a redirect URL.
     const reference = `NCP-${crypto.randomUUID().replace(/-/g, '')}`
 
     // Persist the pending payment BEFORE calling the provider (audit trail even
     // on provider failure). Amount/currency come from the course row, NOT the browser.
     const { rows: inserted } = await query<PaymentRow>(
-      `INSERT INTO payments (user_id, course_id, reference, email, amount_subunits, currency, metadata)
-       VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *`,
+      `INSERT INTO payments (user_id, course_id, provider, reference, email, amount_subunits, currency, metadata)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING *`,
       [
         req.user!.userId,
         courseId,
+        provider.name,
         reference,
         users[0].email,
         course.price_cents,
@@ -219,18 +240,22 @@ export async function initiateCoursePayment(req: Request, res: Response, next: N
     const payment = inserted[0]
 
     try {
-      const init = await initializeTransaction({
+      const init = await provider.initializeTransaction({
         email: users[0].email,
+        name: users[0].name,
         amountSubunits: course.price_cents,
         currency: course.currency,
         reference,
         callbackUrl: `${process.env.CLIENT_URL ?? ''}/payment/callback`,
+        courseTitle: course.title,
         metadata: { paymentId: payment.id, userId: req.user!.userId, courseId },
       })
       // Safe response: no secrets, no provider internals beyond the redirect URL.
       return created(res, {
+        provider: provider.name,
         reference: payment.reference,
-        authorizationUrl: init.authorizationUrl,
+        checkoutUrl: init.checkoutUrl,
+        authorizationUrl: init.checkoutUrl,
         amountSubunits: course.price_cents,
         currency: course.currency,
         courseTitle: course.title,
@@ -284,6 +309,7 @@ export async function getPaymentStatus(req: Request, res: Response, next: NextFu
       [current.user_id, current.course_id]
     )
     return ok(res, {
+      provider: current.provider,
       reference: current.reference,
       status: current.status,
       amountSubunits: current.amount_subunits,
@@ -319,11 +345,13 @@ interface WebhookPayload {
 export async function paystackWebhook(req: Request, res: Response, next: NextFunction) {
   try {
     const rawBody = (req as Request & { rawBody?: Buffer }).rawBody
-    const signature = req.headers['x-paystack-signature'] as string | undefined
-    if (!rawBody || !verifyWebhookSignature(rawBody, signature)) {
+    // Signature verification is delegated to the Paystack adapter: HMAC-SHA512
+    // over the RAW body, delivered in the `x-paystack-signature` header.
+    if (!getProviderByName('paystack').verifyWebhookSignature(rawBody, req.headers)) {
       // Do not leak verification details to attackers.
       return fail(res, 'Invalid webhook signature', 401)
     }
+    if (!rawBody) return fail(res, 'Invalid webhook payload', 400)
 
     let event: WebhookPayload
     try {
@@ -341,6 +369,7 @@ export async function paystackWebhook(req: Request, res: Response, next: NextFun
       if (!payment) return ok(res, { received: true, handled: false }) // unknown reference — ack, no-op
       if (data.status !== 'success') return ok(res, { received: true, handled: false })
       await applyVerifiedPayment(payment, {
+        reference: data.reference,
         amountSubunits: Number(data.amount ?? -1),
         currency: String(data.currency ?? ''),
         providerReference: data.id != null ? String(data.id) : null,
@@ -388,6 +417,93 @@ export async function paystackWebhook(req: Request, res: Response, next: NextFun
 
     // Unsupported/uninteresting events are acknowledged so Paystack stops retrying.
     return ok(res, { received: true, handled: false })
+  } catch (err) {
+    next(err)
+  }
+}
+
+interface FlutterwaveWebhookPayload {
+  event?: string
+  data?: {
+    id?: number | string
+    tx_ref?: string
+    status?: string
+    amount?: number | string
+    currency?: string
+    created_at?: string | null
+  }
+}
+
+/**
+ * POST /api/payments/webhook/flutterwave  (public; authenticated by verif-hash)
+ * Flutterwave retries failed deliveries — acknowledge fast with 200 and stay
+ * idempotent. The payload is NEVER trusted: an authenticated event only tells us
+ * WHICH transaction to re-query; only the server-side verification response can
+ * move a payment to 'verified' (the atomic transition keeps that exact-once).
+ */
+export async function flutterwaveWebhook(req: Request, res: Response, next: NextFunction) {
+  try {
+    const rawBody = (req as Request & { rawBody?: Buffer }).rawBody
+    // The `verif-hash` header must equal the dashboard-configured secret hash.
+    if (!getProviderByName('flutterwave').verifyWebhookSignature(rawBody, req.headers)) {
+      return fail(res, 'Invalid webhook signature', 401)
+    }
+    if (!rawBody) return fail(res, 'Invalid webhook payload', 400)
+
+    let event: FlutterwaveWebhookPayload
+    try {
+      event = JSON.parse(rawBody.toString('utf8')) as FlutterwaveWebhookPayload
+    } catch {
+      return fail(res, 'Invalid webhook payload', 400)
+    }
+
+    // Only completed charges are actionable for course checkout. Everything else
+    // is acknowledged so Flutterwave stops retrying.
+    if (event.event !== 'charge.completed') return ok(res, { received: true, handled: false })
+
+    const txRef = event.data?.tx_ref
+    if (!txRef) return ok(res, { received: true, handled: false })
+
+    const { rows } = await query<PaymentRow>('SELECT * FROM payments WHERE reference = $1', [txRef])
+    const payment = rows[0]
+    if (!payment) return ok(res, { received: true, handled: false }) // unknown reference — ack, no-op
+
+    // Docs (Best Practices): ALWAYS re-query the API before giving value — the
+    // payload's status/amount/currency are never trusted on their own.
+    let verification: NormalizedVerification
+    try {
+      verification = await getProviderByName(payment.provider).verifyTransaction(payment.reference)
+    } catch {
+      // Provider unreachable — ack and let retries / the status endpoint reconcile later.
+      return ok(res, { received: true, handled: false })
+    }
+
+    if (verification.status === 'success') {
+      // When the event carries a transaction id it must agree with the verified one.
+      const eventId = event.data?.id != null ? String(event.data.id) : null
+      if (eventId && verification.providerTransactionId && eventId !== verification.providerTransactionId) {
+        return ok(res, { received: true, handled: false })
+      }
+      await applyVerifiedPayment(payment, {
+        reference: verification.reference,
+        amountSubunits: verification.amountSubunits,
+        currency: verification.currency,
+        providerReference: verification.providerTransactionId,
+        paidAt: verification.paidAt,
+      })
+      return ok(res, { received: true, handled: true })
+    }
+
+    if (verification.status === 'failed' || verification.status === 'abandoned') {
+      const reason = verification.status === 'abandoned' ? 'Checkout abandoned' : 'Provider reported a failed charge'
+      await query(
+        `UPDATE payments SET status = $2, failure_reason = $3, updated_at = NOW() WHERE id = $1 AND status = 'pending'`,
+        [payment.id, verification.status, reason]
+      )
+      return ok(res, { received: true, handled: true })
+    }
+
+    return ok(res, { received: true, handled: false }) // still pending at the provider
   } catch (err) {
     next(err)
   }

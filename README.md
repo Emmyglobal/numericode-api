@@ -216,6 +216,11 @@ AI_TIMEOUT_MS=30000
 OPENAI_API_KEY=your-openai-api-key
 OPENAI_MODEL=gpt-4.1-mini
 GROQ_API_KEY=your-groq-api-key
+PAYMENT_PROVIDER=flutterwave   # flutterwave (active) | paystack (rollback)
+FLW_SECRET_KEY=your-flutterwave-secret-key
+FLW_PUBLIC_KEY=your-flutterwave-public-key
+FLW_SECRET_HASH=your-flutterwave-secret-hash
+PAYSTACK_SECRET_KEY=your-paystack-secret-key
 ```
 
 ---
@@ -287,6 +292,77 @@ keeps its existing behaviour.
 
 Rate limiting is 20 requests / 15 minutes / IP across all AI endpoints, and outbound
 provider calls are capped by `AI_TIMEOUT_MS` (default 30000 ms).
+
+---
+
+## Payments (Flutterwave / Paystack)
+
+Premium-course checkout runs through a small **provider abstraction**
+(`src/services/payment-provider.ts`) with two adapters:
+
+| Provider | Adapter | Selected by |
+|---|---|---|
+| Flutterwave (active) | `src/services/flutterwave.service.ts` | `PAYMENT_PROVIDER=flutterwave` |
+| Paystack (rollback) | `src/services/paystack.service.ts` | `PAYMENT_PROVIDER=paystack` (or unset) |
+
+`PAYMENT_PROVIDER` chooses the provider for **new** checkouts only. Every payment
+row records its provider (`payments.provider`) and is always verified through
+that same provider — switching the setting never invalidates an in-flight
+payment, and **Paystack remains fully available as a rollback**.
+
+### Premium enrolment flow (backend-authoritative)
+
+```
+Premium course → student sees the DB price → POST /api/payments/initiate
+→ pending payment row (provider recorded) → provider checkout URL returned
+→ student pays on the provider's hosted page
+→ redirect back to ${CLIENT_URL}/payment/callback
+→ GET /api/payments/:reference re-verifies server-side
+→ payment 'verified' (amount + currency + reference + ownership checked)
+→ enrollment granted exactly once → course unlocks
+```
+
+The frontend never decides payment success and never sends a price: the amount,
+currency and course identity all come from the database; the callback page and
+the `courses/:id/access` endpoint only read backend state.
+
+### Provider webhooks
+
+| Provider | Endpoint | Authentication |
+|---|---|---|
+| Flutterwave | `POST /api/payments/webhook/flutterwave` | `verif-hash` header must equal `FLW_SECRET_HASH` (timing-safe compare) |
+| Paystack | `POST /api/payments/webhook/paystack` | `x-paystack-signature` HMAC-SHA512 over the raw body |
+
+Both webhooks are idempotent and **never trust the payload**: an authenticated
+event only identifies the transaction, which is then re-verified server-side
+before a payment may become `verified` — duplicate deliveries cannot enroll
+twice, and a claimed "successful" payload with a failed verify stays failed.
+
+### Premium dead-end fix (Phase 21)
+
+Previously an unpaid student reached *"An active Premium subscription or verified
+payment is required to enrol in premium courses"* with no way to pay. Now:
+
+- Course page: premium + unpaid → **"Pay ₦X & Enroll"** (price from the backend);
+  while initiating, the button disables to prevent duplicate checkouts.
+- Payment callback: verified → "Payment successful / You're enrolled" + **Start
+  Course**; failed → **Try Payment Again**; cancelled (abandoned) → **Payment
+  cancelled** + retry; pending → auto-refreshing "Payment processing".
+- Dashboard ("Enrol in a New Course"): premium courses show a **Pay ₦X & Enroll**
+  action instead of the free-course bulk-enrol checkbox; enrolled-but-unpaid
+  premium cards keep their "Payment Required → Complete Payment" action.
+- The enrolment gate itself is unchanged — the backend still rejects unpaid
+  premium enrolment; the UI now always provides the payment path first.
+
+### Security rules (unchanged, extended to Flutterwave)
+
+- `FLW_SECRET_KEY`, `FLW_SECRET_HASH` and `PAYSTACK_SECRET_KEY` are **backend-only**
+  — never in `VITE_*` variables, responses, or logs.
+- Amounts are validated against the **stored** `payments.amount_subunits` and
+  currency, the tx_ref/reference must match the payment row, and enrollment is
+  granted only by the atomic `pending|abandoned → verified` transition.
+- Only the authenticated JWT user can initiate a payment or read its status;
+  ownership is enforced on every status read.
 
 ---
 

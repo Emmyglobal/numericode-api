@@ -185,7 +185,68 @@ If any step fails, the workflow fails — configure branch protection rules in G
 
 ---
 
-## Paystack Payments Configuration (required for premium course checkout)
+## Payments Configuration — Flutterwave (active) with Paystack rollback
+
+`PAYMENT_PROVIDER` selects which provider handles **new** premium-course
+checkouts. Every payment row records its provider and is always verified through
+that same provider, so switching the setting never invalidates an in-flight
+payment.
+
+| Provider | `PAYMENT_PROVIDER` | Required secrets | Webhook URL |
+|---|---|---|---|
+| Flutterwave (active) | `flutterwave` | `FLW_SECRET_KEY`, `FLW_SECRET_HASH` (`FLW_PUBLIC_KEY` optional) | `/api/payments/webhook/flutterwave` |
+| Paystack (rollback) | `paystack` (default when unset) | `PAYSTACK_SECRET_KEY` | `/api/payments/webhook/paystack` |
+
+### Flutterwave environment variables
+
+| Variable | Value |
+|---|---|
+| `PAYMENT_PROVIDER` | `flutterwave` |
+| `FLW_SECRET_KEY` | `FLWSECK_TEST-…` for sandbox, `FLWSECK-…` for production |
+| `FLW_PUBLIC_KEY` | Public key (kept for completeness; never used server-side) |
+| `FLW_SECRET_HASH` | Any random string — must match the dashboard "Secret hash" |
+
+All values are backend secrets: never place them in the frontend, `VITE_*`
+variables, logs, or version control.
+
+### Flutterwave webhook (one-time dashboard step — REQUIRED)
+
+In the Flutterwave Dashboard → Settings → Webhooks:
+
+1. Set the **Secret hash** to the same value as `FLW_SECRET_HASH`.
+2. Set the **URL** to `https://<your-api-host>/api/payments/webhook/flutterwave`
+   (e.g. `https://numericode-api.onrender.com/api/payments/webhook/flutterwave`).
+
+The endpoint compares the `verif-hash` header against `FLW_SECRET_HASH`
+(timing-safe), then **re-queries Flutterwave server-side** before any payment is
+marked verified. Duplicate deliveries are idempotent (safe to deliver
+repeatedly). Without the webhook, purchases still verify when the student
+returns (the callback page polls `GET /api/payments/:reference`, which
+reconciles against the provider server-side), but confirmation is delayed.
+
+Test mode: with test keys, complete a checkout using Flutterwave's test cards —
+the sandbox delivers the same `charge.completed` events as production.
+
+### Flutterwave sandbox purchase sanity check
+
+1. As a student, initialize checkout for a published premium course
+   (`POST /api/payments/initiate`) — expect `checkoutUrl` on
+   `checkout.flutterwave.com` and `provider: "flutterwave"`.
+2. Complete the sandbox payment (Flutterwave test cards).
+3. `GET /api/payments/<reference>` must flip `pending → verified` with
+   `enrollmentGranted: true`; the student then sees the course content in the
+   dashboard.
+
+### Rollback to Paystack
+
+1. Set `PAYMENT_PROVIDER=paystack` (or remove the variable — unset means
+   Paystack) and redeploy.
+2. No data migration is needed: existing Flutterwave payments keep verifying
+   through Flutterwave, new checkouts use Paystack.
+
+---
+
+## Paystack Payments Configuration (rollback/fallback — kept working)
 
 The backend owns the Paystack secret key — it must **never** be placed in the
 frontend, Vite variables, or version control.

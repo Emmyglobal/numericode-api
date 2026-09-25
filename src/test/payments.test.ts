@@ -25,6 +25,9 @@ const mockVerify = vi.mocked(verifyTransaction)
 // A fake test secret — matches the pattern of real keys, is NOT a real credential.
 const TEST_SECRET = 'sk_test_phase16_hmac_secret'
 process.env.PAYSTACK_SECRET_KEY = TEST_SECRET
+// Pin the active provider so the Paystack regression suite always exercises
+// Paystack regardless of any ambient PAYMENT_PROVIDER (Phase 21 rollback test).
+process.env.PAYMENT_PROVIDER = 'paystack'
 
 const app = createApp()
 
