@@ -32,11 +32,11 @@ export interface FlutterwaveVerification {
 }
 
 export function isFlutterwaveConfigured(): boolean {
-  return Boolean(process.env.FLW_SECRET_KEY)
+  return Boolean(process.env.FLW_SECRET_KEY?.trim())
 }
 
 function requireSecretKey(): string {
-  const key = process.env.FLW_SECRET_KEY
+  const key = (process.env.FLW_SECRET_KEY ?? '').trim()
   if (!key) throw new Error('FLW_SECRET_KEY is not configured')
   return key
 }
@@ -108,6 +108,18 @@ export async function initializeCheckout(input: {
       tx_ref: input.reference,
       amount: toBaseAmount(input.amountSubunits),
       currency: input.currency,
+      // ⚠️ payment_options: comma-separated allowed payment methods.
+      //   Flutterwave auto-filters methods not applicable to the currency
+      //   (NGN-only ones like ussd, enaira are dropped for USD/EUR/GBP).
+      //   For this field to take effect, the merchant MUST:
+      //     1. Uncheck "Enable Dashboard Payment Options" in Flutterwave
+      //        Dashboard → Settings → Payment Methods.
+      //     2. Enable Card, Bank Transfer, USSD, etc. in that same dashboard.
+      //   If "Enable Dashboard Payment Options" is checked (default), this
+      //   field is IGNORED and only dashboard-enabled methods appear.
+      //   The #1 reason users see ONLY PayPal: no other methods are enabled
+      //   in the dashboard. Enable them there first.
+      payment_options: 'card, banktransfer, ussd, account, internetbanking, nqr, enaira, opay',
       ...(input.callbackUrl ? { redirect_url: input.callbackUrl } : {}),
       customer: {
         email: input.email,

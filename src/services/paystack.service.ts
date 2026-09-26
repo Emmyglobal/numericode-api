@@ -27,11 +27,11 @@ export interface PaystackVerification {
 }
 
 export function isPaystackConfigured(): boolean {
-  return Boolean(process.env.PAYSTACK_SECRET_KEY)
+  return Boolean(process.env.PAYSTACK_SECRET_KEY?.trim())
 }
 
 function requireSecretKey(): string {
-  const key = process.env.PAYSTACK_SECRET_KEY
+  const key = (process.env.PAYSTACK_SECRET_KEY ?? '').trim()
   if (!key) throw new Error('PAYSTACK_SECRET_KEY is not configured')
   return key
 }

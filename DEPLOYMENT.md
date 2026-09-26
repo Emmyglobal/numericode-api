@@ -246,7 +246,54 @@ the sandbox delivers the same `charge.completed` events as production.
 
 ---
 
-## Paystack Payments Configuration (rollback/fallback — kept working)
+## Flutterwave Payments Configuration (active — premium course checkout)
+
+The backend owns the Flutterwave secret key — it must **never** be placed in the
+frontend, Vite variables, or version control.
+
+### 1. Backend environment variables
+
+| Variable | Value |
+|---|---|
+| `PAYMENT_PROVIDER` | `flutterwave` (selects the provider for new checkouts) |
+| `FLW_SECRET_KEY` | Live secret key from Flutterwave Dashboard → Settings → API Keys (starts with `FLWSECK_`) |
+| `FLW_SECRET_HASH` | Webhook secret hash from Flutterwave Dashboard → Settings → Webhooks |
+
+### 2. Enable payment methods in the dashboard
+
+Flutterwave Standard's checkout page only shows payment methods that are
+**enabled** in the Flutterwave Dashboard → Settings → Payment Methods.
+
+> **If only PayPal appears:** the other methods (Card, Bank Transfer, USSD, etc.)
+> are not enabled in the dashboard. Enable them there.
+
+The code sends `payment_options: 'card, banktransfer, ussd, account,
+internetbanking, nqr, enaira, opay'` in the `/v3/payments` request.
+**For this field to take effect**, you must **uncheck "Enable Dashboard Payment
+Options"** in the Flutterwave dashboard. When unchecked, the `payment_options`
+string determines which methods appear. When checked (default), only
+dashboard-enabled methods appear.
+
+### 3. Webhook URL
+
+Register in **Flutterwave Dashboard → Settings → Webhooks**:
+
+```
+https://<your-api-domain>/api/payments/webhook/flutterwave
+```
+
+The endpoint authenticates via the `verif-hash` header (compared to `FLW_SECRET_HASH`).
+
+### 4. Common issues
+
+| Symptom | Likely cause |
+|---|---|
+| 502 "Invalid authorization key" | `FLW_SECRET_KEY` is set but invalid/revoked in dashboard |
+| Only PayPal shows on checkout | Other payment methods not enabled (or "Enable Dashboard Payment Options" checked and only PayPal toggled on) |
+| `fetch is not defined` | Node.js < 18 on the host — pin `nodeVersion: '18'` in `render.yaml` |
+| 502 "network error" | Outbound network to `api.flutterwave.com` blocked by firewall |
+
+---
 
 The backend owns the Paystack secret key — it must **never** be placed in the
 frontend, Vite variables, or version control.
