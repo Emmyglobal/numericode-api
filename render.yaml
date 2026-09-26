@@ -3,6 +3,10 @@ services:
     name: numerycode-api
     runtime: node
     plan: free
+    # Pin to Node.js 18 — required for native fetch() and AbortSignal.timeout()
+    # used by flutterwave.service.ts and paystack.service.ts. Without this,
+    # Render's default (which may be < 18) causes "fetch is not defined" → 502.
+    nodeVersion: '18'
     buildCommand: npm install && npm run build
     # Run database migrations as part of every deploy. Two mechanisms are used
     # so it works regardless of how the service is deployed:
@@ -36,4 +40,24 @@ services:
       - key: GOOGLE_CLIENT_ID
         sync: false
       - key: GOOGLE_CLIENT_SECRET
+        sync: false
+      # ── Payments ──────────────────────────────────────────────────────────
+      # PAYMENT_PROVIDER: 'flutterwave' for new checkouts, 'paystack' as rollback.
+      # Must be set in the Render dashboard (not auto-generated).
+      - key: PAYMENT_PROVIDER
+        value: flutterwave
+      - key: FLW_SECRET_KEY
+        sync: false
+      - key: FLW_PUBLIC_KEY
+        sync: false
+      - key: FLW_SECRET_HASH
+        sync: false
+      - key: PAYSTACK_SECRET_KEY
+        sync: false
+      # ── Email ─────────────────────────────────────────────────────────────
+      - key: EMAIL_FROM
+        value: noreply@numerycode.com
+      - key: EMAIL_FROM_NAME
+        value: NumeryCode
+      - key: CONTACT_EMAIL_TO
         sync: false

@@ -123,8 +123,13 @@ async function reconcilePendingPayment(payment: PaymentRow): Promise<PaymentRow>
     if (!verification || typeof verification.status !== 'string') {
       return payment // malformed provider response — stay pending; webhook remains authoritative
     }
-  } catch {
+  } catch (err) {
     // Provider unreachable/timeout — stay pending; the webhook remains authoritative.
+    console.error('[payments] reconcilePendingPayment: provider verification failed', {
+      reference: payment.reference,
+      provider: payment.provider,
+      error: err instanceof Error ? err.message : String(err),
+    })
     return payment
   }
   if (verification.status === 'success') {
@@ -260,10 +265,22 @@ export async function initiateCoursePayment(req: Request, res: Response, next: N
         currency: course.currency,
         courseTitle: course.title,
       })
-    } catch {
+    } catch (err) {
+      const errMsg = err instanceof Error ? err.message : String(err)
+      console.error('[payments] initiateCoursePayment: provider checkout initialization failed', {
+        userId: req.user!.userId,
+        courseId,
+        reference,
+        provider: provider.name,
+        error: errMsg,
+      })
+      // Preserve the diagnostic prefix for callers/tests that match on it, while
+      // appending the actual provider error (truncated to column width) so the
+      // real reason is visible in the DB, admin dashboard and payment status endpoint.
+      const failureReason = `Checkout initialization failed: ${errMsg.slice(0, 180)}`
       await query(
         `UPDATE payments SET status = 'failed', failure_reason = $2, updated_at = NOW() WHERE id = $1`,
-        [payment.id, 'Checkout initialization failed']
+        [payment.id, failureReason]
       )
       return fail(res, 'Could not start checkout. Please try again.', 502)
     }
@@ -473,8 +490,12 @@ export async function flutterwaveWebhook(req: Request, res: Response, next: Next
     let verification: NormalizedVerification
     try {
       verification = await getProviderByName(payment.provider).verifyTransaction(payment.reference)
-    } catch {
+    } catch (err) {
       // Provider unreachable — ack and let retries / the status endpoint reconcile later.
+      console.error('[payments] flutterwaveWebhook: provider verification failed', {
+        txRef,
+        error: err instanceof Error ? err.message : String(err),
+      })
       return ok(res, { received: true, handled: false })
     }
 

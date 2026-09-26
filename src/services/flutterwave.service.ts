@@ -71,11 +71,15 @@ async function flutterwaveFetch<T>(path: string, init?: RequestInit): Promise<T>
     })
   } catch (err) {
     // Error messages never include the key or headers.
-    throw new Error(`Flutterwave request failed: ${err instanceof Error ? err.message : 'network error'}`)
+    const msg = err instanceof Error ? err.message : 'network error'
+    console.error('[flutterwave] request failed', { path, error: msg })
+    throw new Error(`Flutterwave request failed: ${msg}`)
   }
   const json = (await res.json().catch(() => null)) as FlutterwaveEnvelope<T> | null
   if (!res.ok || json?.status !== 'success') {
-    throw new Error(`Flutterwave request failed (${res.status}): ${json?.message ?? 'unknown error'}`)
+    const msg = json?.message ?? 'unknown error'
+    console.error('[flutterwave] API error', { path, status: res.status, message: msg })
+    throw new Error(`Flutterwave request failed (${res.status}): ${msg}`)
   }
   return json.data
 }

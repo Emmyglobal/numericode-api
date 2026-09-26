@@ -55,11 +55,15 @@ async function paystackFetch<T>(path: string, init?: RequestInit): Promise<T> {
       signal: AbortSignal.timeout(TIMEOUT_MS),
     })
   } catch (err) {
-    throw new Error(`Paystack request failed: ${err instanceof Error ? err.message : 'network error'}`)
+    const msg = err instanceof Error ? err.message : 'network error'
+    console.error('[paystack] request failed', { path, error: msg })
+    throw new Error(`Paystack request failed: ${msg}`)
   }
   const json = (await res.json().catch(() => null)) as PaystackEnvelope<T> | null
   if (!res.ok || !json?.status) {
-    throw new Error(`Paystack request failed (${res.status}): ${json?.message ?? 'unknown error'}`)
+    const msg = json?.message ?? 'unknown error'
+    console.error('[paystack] API error', { path, status: res.status, message: msg })
+    throw new Error(`Paystack request failed (${res.status}): ${msg}`)
   }
   return json.data
 }

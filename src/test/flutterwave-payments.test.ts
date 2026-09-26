@@ -199,7 +199,7 @@ describe('flutterwave: checkout initiation', () => {
       [course.id]
     )
     expect(rows[0].status).toBe('failed')
-    expect(rows[0].failure_reason).toBe('Checkout initialization failed')
+    expect(rows[0].failure_reason).toBe('Checkout initialization failed: Flutterwave request failed: network error')
   })
 })
 
