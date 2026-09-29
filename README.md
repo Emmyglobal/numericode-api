@@ -149,9 +149,23 @@ Every table uses `gen_random_uuid()` for primary keys (via the `pgcrypto` extens
 ## Testing
 
 ```bash
-npm test          # Run all 55 tests once
+# One-time setup — a DISPOSABLE test database, separate from any dev/prod DB.
+# Full walkthrough: see .env.test.example.
+createdb numerycode_test
+cp .env.test.example .env.test          # then set DATABASE_URL_TEST inside it
+DATABASE_URL="$DATABASE_URL_TEST" npm run db:migrate   # create the schema
+DATABASE_URL="$DATABASE_URL_TEST" npm run db:seed      # load demo fixtures
+
+npm test           # Run every test file once
 npm run test:watch # Watch mode
 ```
+
+The suite writes rows (fixtures, courses, payments, …), so it **never touches the
+database in `DATABASE_URL`**. Before any connection is opened, `src/test/dbGuard.ts`
+requires `DATABASE_URL_TEST` — a disposable database whose name ends with `_test`
+— and **fails closed** when it is missing, blank or points at a production-like
+host. There is no fallback. `.env.test` is gitignored; only the committed
+`.env.test.example` template belongs in version control.
 
 Tests run against a **real PostgreSQL database** (not mocked) — every query, join, and constraint is genuinely exercised.
 
@@ -163,6 +177,7 @@ Tests run against a **real PostgreSQL database** (not mocked) — every query, j
 | `dashboard.test.ts` | 7 | All 8 student endpoints, profile update |
 | `trainer.test.ts` | 5 | All 5 trainer endpoints |
 | `admin.test.ts` | 7 | All 6 admin endpoints, user status update, announcement creation |
+| `db-guard.test.ts` | 20 | Test-database guard: rejected/accepted `DATABASE_URL_TEST` configurations (no DB required) |
 
 ## API Endpoints
 

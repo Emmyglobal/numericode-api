@@ -1,6 +1,9 @@
 node_modules/
 dist/
 .env
+# Test-only environment (real credentials for the disposable test database).
+# Only the committed template .env.test.example belongs in version control.
+.env.test
 *.log
 nul
 

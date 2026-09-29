@@ -1,8 +1,24 @@
 import 'dotenv/config'
+import dotenv from 'dotenv'
+import path from 'path'
 import bcrypt from 'bcryptjs'
 import { query } from '../db/pool'
+import { assertTestDatabaseConfigured, describeTarget } from './dbGuard'
+
+// ── Isolated test database (fail closed) ──────────────────────────────────────
+// `.env.test` holds test-only values and is gitignored (see .env.test.example).
+// Values already present in the real environment — shell exports or CI — always
+// win, because dotenv never overrides them. CI therefore needs no file at all.
+dotenv.config({ path: path.resolve(process.cwd(), '.env.test'), quiet: true })
 
 process.env.NODE_ENV = 'test'
+
+// Refuse to run unless a dedicated TEST database is configured, then route every
+// connection made by this process to it. This executes before any query is
+// issued, so a misconfigured run never opens a socket to the production database.
+const testDatabase = assertTestDatabaseConfigured(process.env)
+process.env.DATABASE_URL = testDatabase.url
+console.log(`[test] using isolated test database ${describeTarget(testDatabase)}`)
 
 async function cleanupGeneratedUsers() {
   try {

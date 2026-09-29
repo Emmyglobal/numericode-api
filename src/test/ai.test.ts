@@ -20,8 +20,15 @@ import { createApp } from '../app'
  *
  * OPENAI_TIMEOUT_MS is lowered to 200 ms BEFORE the controller module is
  * imported (it is read once at module load) so the timeout test finishes fast.
+ * NOTE: the provider service now prefers the provider-generic AI_TIMEOUT_MS
+ * (AI_TIMEOUT_MS ?? OPENAI_TIMEOUT_MS), and .env ships AI_TIMEOUT_MS=30000 —
+ * which, left unset here, would make the "hangs past the timeout" test wait
+ * 30 s and hit the Vitest 15 s limit. Both names are therefore pinned to the
+ * same short budget so the test exercises the real AbortSignal.timeout path
+ * whichever name the service reads.
  */
 vi.hoisted(() => {
+  process.env.AI_TIMEOUT_MS = '200'
   process.env.OPENAI_TIMEOUT_MS = '200'
   // Phase 22B: pin the provider for this regression file. The test environment
   // loads .env via setup.ts, and AI_PROVIDER must be 'openai' here so the

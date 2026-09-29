@@ -705,7 +705,7 @@ export async function seed() {
         ($1, $2, $3, 3600, 45, NOW() - INTERVAL '2 days'),
         ($1, $2, $4, 2400, 28, NOW() - INTERVAL '1 day'),
         ($1, $2, $5, 1800, 15, NOW()),
-        ($3, $2, $3, 7200, 80, NOW() - INTERVAL '3 days')
+        ($6, $2, $3, 7200, 80, NOW() - INTERVAL '3 days')
       ON CONFLICT (user_id, course_id, lesson_id) DO NOTHING
     `, [kolade.id, foundationMath.id, lessons[0].id, lessons[1].id, lessons[2].id, amaka.id])
   }

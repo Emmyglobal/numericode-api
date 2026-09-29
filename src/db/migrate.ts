@@ -312,26 +312,13 @@ try {
       CREATE INDEX IF NOT EXISTS idx_guardian_enrollments_student_id ON guardian_enrollments(student_id);
       CREATE INDEX IF NOT EXISTS idx_submissions_user_id   ON submissions(user_id);
 
-      -- Testimonials (public submissions, moderated before publishing)
-      CREATE TABLE IF NOT EXISTS testimonials (
-        id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-        user_id      UUID REFERENCES users(id) ON DELETE SET NULL,
-        name         VARCHAR(255) NOT NULL,
-        email        VARCHAR(255) NOT NULL,
-        course_id    UUID REFERENCES courses(id) ON DELETE SET NULL,
-        location     VARCHAR(255),
-        message      TEXT NOT NULL,
-        rating       INTEGER CHECK (rating IS NULL OR (rating >= 1 AND rating <= 5)),
-        status       VARCHAR(20) NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','approved','rejected')),
-        reviewed_by  UUID REFERENCES users(id) ON DELETE SET NULL,
-        reviewed_at  TIMESTAMPTZ,
-        created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
-      );
-      CREATE INDEX IF NOT EXISTS idx_testimonials_status ON testimonials(status);
-      CREATE INDEX IF NOT EXISTS idx_testimonials_created_at ON testimonials(created_at DESC);
+      -- Testimonials: declared once, further below, using the live schema —
+      -- { course, consent } — which is what the production database and
+      -- src/controllers/testimonials.controller.ts use. A duplicate, older
+      -- draft definition (user_id/course_id/rating/…) previously sat here and
+      -- was picked up FIRST on fresh databases, producing a schema the
+      -- controller cannot query. Kept single so fresh databases match production.
 
-      -- Cap existing quiz time limits at 30 minutes (Phase 20)
-      UPDATE quizzes SET time_limit = 30 WHERE time_limit > 30;
       CREATE INDEX IF NOT EXISTS idx_live_classes_course_id ON live_classes(course_id);
       CREATE INDEX IF NOT EXISTS idx_lessons_module_id     ON lessons(module_id);
       CREATE INDEX IF NOT EXISTS idx_modules_course_id     ON modules(course_id);
@@ -416,6 +403,9 @@ try {
       ALTER TABLE quizzes ADD COLUMN IF NOT EXISTS lesson_id UUID REFERENCES lessons(id) ON DELETE SET NULL;
       ALTER TABLE quizzes ADD COLUMN IF NOT EXISTS module_id UUID REFERENCES modules(id) ON DELETE SET NULL;
 
+      -- Cap existing quiz time limits at 30 minutes (Phase 20)
+      UPDATE quizzes SET time_limit = 30 WHERE time_limit > 30;
+
       -- Prerequisite quiz: when set on a course, an enrolled student must PASS
       -- this quiz before the course content unlocks (see buildFullCourse +
       -- CourseViewerPage). Declared here — AFTER the quizzes table exists — so
@@ -444,6 +434,10 @@ try {
         created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
       );
       CREATE INDEX IF NOT EXISTS idx_quiz_questions_quiz_id ON quiz_questions(quiz_id);
+      -- Per-question explanation shown with results. Written by the react-course
+      -- seeder (src/db/react-course/index.ts); production already has this column,
+      -- so it is declared here to keep fresh databases in sync. Additive only.
+      ALTER TABLE quiz_questions ADD COLUMN IF NOT EXISTS explanation TEXT;
 
       -- Quiz Attempts
       CREATE TABLE IF NOT EXISTS quiz_attempts (
@@ -676,7 +670,9 @@ try {
       -- Add content column to lessons if not exists (for existing databases)
       ALTER TABLE lessons ADD COLUMN IF NOT EXISTS content TEXT NOT NULL DEFAULT '';
 
-      -- Testimonials collection — email-gated submissions; only approved shown publicly
+      -- Testimonials collection — email-gated submissions; only approved shown
+      -- publicly. This is the ONLY definition of the table (fresh databases
+      -- must get exactly the live/production schema the controller queries).
       CREATE TABLE IF NOT EXISTS testimonials (
         id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
         name       VARCHAR(255) NOT NULL,
@@ -689,6 +685,7 @@ try {
         created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
       );
       CREATE INDEX IF NOT EXISTS idx_testimonials_status ON testimonials(status);
+      CREATE INDEX IF NOT EXISTS idx_testimonials_created_at ON testimonials(created_at DESC);
 
       -- Legal / policy acceptance audit — records which version of each policy a
       -- user actively accepted and when (explicit, auditable consent; NOT one
