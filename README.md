@@ -300,10 +300,10 @@ keeps its existing behaviour.
 |---|---|
 | `POST /api/ai/study-guide` | Public |
 | `GET /api/ai/health` | Public |
-| `POST /api/ai/generate-lesson` | Trainer only (`requireAuth` + `requireRole('trainer')`) |
-| `POST /api/ai/generate-quiz` | Trainer only |
-| `POST /api/ai/generate-assignment` | Trainer only |
-| `POST /api/ai/generate-note` | Trainer only |
+| `POST /api/ai/generate-lesson` | Course authors only (`requireAuth` + `requireRole('trainer', 'admin')`) |
+| `POST /api/ai/generate-quiz` | Course authors only (trainer or admin) |
+| `POST /api/ai/generate-assignment` | Course authors only (trainer or admin) |
+| `POST /api/ai/generate-note` | Course authors only (trainer or admin) |
 
 Rate limiting is 20 requests / 15 minutes / IP across all AI endpoints, and outbound
 provider calls are capped by `AI_TIMEOUT_MS` (default 30000 ms).

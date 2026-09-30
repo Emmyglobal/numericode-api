@@ -8,9 +8,11 @@ import { signToken } from '../utils/jwt'
  *
  * Proves the provider migration did not change WHO may call the AI endpoints:
  *   - study-guide stays public, health stays public
- *   - the four generation endpoints remain trainer-only
- *   - identity/role come exclusively from the signed JWT (req.user) — never
- *     from request-body fields such as role/userId/trainerId
+ *   - the four generation endpoints are restricted to course authors
+ *     (trainer or admin) — both course builders expose the AI generator
+ *   - students are still rejected, and identity/role come exclusively from the
+ *     signed JWT (req.user) — never from request-body fields such as
+ *     role/userId/trainerId
  *
  * Authentication is verified purely by JWT signature (requireAuth does not hit
  * the database), so these tests sign tokens directly with signToken and need
@@ -43,7 +45,7 @@ afterEach(() => {
   vi.unstubAllGlobals()
 })
 
-describe('AI trainer endpoints require authentication', () => {
+describe('AI generator endpoints require authentication', () => {
   it.each([
     ['/api/ai/generate-lesson'],
     ['/api/ai/generate-quiz'],
@@ -79,7 +81,7 @@ describe('AI trainer endpoints require authentication', () => {
   })
 })
 
-describe('AI trainer endpoints reject non-trainer roles', () => {
+describe('AI generator endpoints reject students', () => {
   it('blocks an authenticated student from generating a lesson with 403', async () => {
     const fetchMock = vi.fn()
     vi.stubGlobal('fetch', fetchMock)
@@ -91,7 +93,7 @@ describe('AI trainer endpoints reject non-trainer roles', () => {
       .expect(403)
 
     expect(res.body.success).toBe(false)
-    expect(res.body.message).toBe('This action requires role: trainer')
+    expect(res.body.message).toBe('This action requires role: trainer or admin')
     expect(fetchMock).not.toHaveBeenCalled()
   })
 
@@ -113,12 +115,12 @@ describe('AI trainer endpoints reject non-trainer roles', () => {
       .send({ ...lessonBody, role: 'trainer', userRole: 'trainer', userId: 'attacker', trainerId: 'attacker' })
       .expect(403)
 
-    expect(res.body.message).toBe('This action requires role: trainer')
+    expect(res.body.message).toBe('This action requires role: trainer or admin')
     expect(fetchMock).not.toHaveBeenCalled()
   })
 })
 
-describe('AI trainer endpoints allow authenticated trainers', () => {
+describe('AI generator endpoints allow authenticated course authors', () => {
   it('allows a trainer to generate a lesson (identity comes from the JWT)', async () => {
     const fetchMock = vi.fn().mockResolvedValue(lessonSuccessPayload())
     vi.stubGlobal('fetch', fetchMock)
@@ -155,14 +157,58 @@ describe('AI trainer endpoints allow authenticated trainers', () => {
     expect(fetchMock).toHaveBeenCalledTimes(1)
   })
 
-  it('keeps the AI generation routes trainer-only (admin role is not granted access)', async () => {
-    // requireRole('trainer') is the existing design; an admin JWT must NOT be
-    // granted access just because the provider changed.
+  it('keeps the AI generation routes closed to admins only for authoring their own content', async () => {
+    // Admins ARE course authors in this app and both course builders expose the
+    // AI generator, so an admin JWT is expected to be allowed. Authorization is
+    // still role-based from the signed JWT: this proves the call succeeds rather
+    // than that it is silently bypassed.
+    const fetchMock = vi.fn().mockResolvedValue(lessonSuccessPayload())
+    vi.stubGlobal('fetch', fetchMock)
+
     const adminToken = signToken('33333333-3333-4333-8333-333333333333', 'admin')
-    await request(app)
+    const res = await request(app)
       .post(GENERATE_LESSON_URL)
       .set('Authorization', `Bearer ${adminToken}`)
       .send(lessonBody)
+      .expect(200)
+
+    expect(res.body.success).toBe(true)
+    expect(res.body.data.content).toContain('Photosynthesis')
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('still blocks a student on every generator now that admins are allowed', async () => {
+    // Widening the role list must not open the generators to students.
+    for (const url of [
+      '/api/ai/generate-lesson',
+      '/api/ai/generate-quiz',
+      '/api/ai/generate-assignment',
+      '/api/ai/generate-note',
+    ]) {
+      const fetchMock = vi.fn()
+      vi.stubGlobal('fetch', fetchMock)
+
+      await request(app)
+        .post(url)
+        .set('Authorization', `Bearer ${studentToken}`)
+        .send(lessonBody)
+        .expect(403)
+
+      expect(fetchMock, `${url} must not reach the provider for a student`).not.toHaveBeenCalled()
+    }
+  })
+
+  it('does not let a student escalate to an allowed role through the request body', async () => {
+    const fetchMock = vi.fn()
+    vi.stubGlobal('fetch', fetchMock)
+
+    const res = await request(app)
+      .post(GENERATE_LESSON_URL)
+      .set('Authorization', `Bearer ${studentToken}`)
+      .send({ ...lessonBody, role: 'admin', userRole: 'admin' })
       .expect(403)
+
+    expect(res.body.message).toBe('This action requires role: trainer or admin')
+    expect(fetchMock).not.toHaveBeenCalled()
   })
 })
