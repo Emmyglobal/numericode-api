@@ -1,6 +1,7 @@
 import type { NextFunction, Request, Response } from 'express'
 import { query } from '../db/pool'
 import { fail, forbidden, notFound, ok } from '../utils/response'
+import { entitlementAllowsContent, resolveCourseEntitlement } from '../utils/entitlement'
 
 type SubmissionWithAssignment = {
   id: string; assignment_id: string; user_id: string; status: string; submitted_at: Date | null; content: string | null
@@ -16,11 +17,22 @@ export async function submitAssignment(req: Request, res: Response, next: NextFu
       answers?: Array<{ questionId: string; selectedIndex?: number; answer?: string; fileName?: string; fileData?: string }>
       content?: string; fileName?: string | null; fileData?: string | null
     }
-    const { rows: assignments } = await query<{ id: string; due_date: Date }>(
-      `SELECT a.id, a.due_date FROM assignments a JOIN enrollments e ON e.course_id = a.course_id
+    // Resolve course_id too: the enrollment join below proves enrollment, but
+    // the premium decision must be made against the assignment's own course.
+    const { rows: assignments } = await query<{ id: string; due_date: Date; course_id: string }>(
+      `SELECT a.id, a.due_date, a.course_id FROM assignments a JOIN enrollments e ON e.course_id = a.course_id
        WHERE a.id = $1 AND e.user_id = $2`, [req.params.assignmentId, req.user!.userId]
     )
     if (!assignments[0]) return notFound(res, 'Assignment not found or unavailable')
+
+    // Submitting work mutates premium learning state, so an enrollment row is
+    // not enough: the student needs the canonical entitlement for THIS course
+    // (verified payment or active subscription) before anything is written.
+    const entitlement = await resolveCourseEntitlement(req.user!.userId, assignments[0].course_id)
+    if (!entitlementAllowsContent(entitlement)) {
+      return forbidden(res, 'Premium access for this course is not active')
+    }
+
     const status = assignments[0].due_date < new Date() ? 'overdue' : 'submitted'
     const { rows } = await query<{ id: string; status: string; submitted_at: Date }>(
       `INSERT INTO submissions (assignment_id, user_id, status, content, answers, file_name, file_data, submitted_at, returned_for_correction)

@@ -1,6 +1,8 @@
 import type { Request, Response, NextFunction } from 'express'
 import { query } from '../db/pool'
-import { ok, fail, notFound } from '../utils/response'
+import { ok, fail, notFound, forbidden } from '../utils/response'
+import { isUuid } from '../utils/objectAccess'
+import { entitlementAllowsContent, resolveCourseEntitlement } from '../utils/entitlement'
 import { singleResourceUpload } from '../middleware/upload'
 import { persistUploadedFile } from '../utils/fileStorage'
 import type { ResourceRow } from '../types'
@@ -141,12 +143,49 @@ export async function deleteResource(req: Request, res: Response, next: NextFunc
 /**
  * GET /api/lessons/:lessonId/resources
  * List resources for a specific lesson (student-facing).
+ *
+ * Resources are protected lesson material, so the course is resolved from the
+ * lesson itself (lesson → module → course) and the canonical entitlement is
+ * enforced: students need enrolment plus a live premium entitlement on a
+ * premium course; trainers only reach their own courses (same rule as
+ * createResource / deleteResource); admins keep their management access.
  */
 export async function getLessonResources(req: Request, res: Response, next: NextFunction) {
   try {
+    const userId = req.user!.userId
+    const lessonId = req.params.lessonId
+
+    if (!isUuid(lessonId)) return notFound(res, 'Lesson not found')
+    const { rows: lessonRows } = await query<{ course_id: string; instructor_id: string }>(
+      `SELECT m.course_id, c.instructor_id
+         FROM lessons l
+         JOIN modules m ON m.id = l.module_id
+         JOIN courses c ON c.id = m.course_id
+        WHERE l.id = $1`,
+      [lessonId]
+    )
+    const lesson = lessonRows[0]
+    if (!lesson) return notFound(res, 'Lesson not found')
+
+    if (req.user!.role === 'trainer') {
+      if (lesson.instructor_id !== userId) {
+        return forbidden(res, 'You can only access resources for your own courses')
+      }
+    } else if (req.user!.role === 'student') {
+      const entitlement = await resolveCourseEntitlement(userId, lesson.course_id)
+      if (!entitlementAllowsContent(entitlement)) {
+        return forbidden(res, 'Premium access for this course is not active')
+      }
+      const { rows: enrolled } = await query<{ id: string }>(
+        'SELECT id FROM enrollments WHERE user_id = $1 AND course_id = $2',
+        [userId, lesson.course_id]
+      )
+      if (!enrolled[0]) return forbidden(res, 'You must be enrolled in this course to view its resources')
+    }
+
     const { rows } = await query<ResourceRow>(
       'SELECT * FROM resources WHERE lesson_id = $1 ORDER BY title',
-      [req.params.lessonId]
+      [lessonId]
     )
     return ok(res, rows.map(r => ({ id: r.id, title: r.title, type: r.type, url: r.url })))
   } catch (err) { next(err) }

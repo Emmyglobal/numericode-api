@@ -3,6 +3,8 @@ import { query } from '../db/pool'
 import { ok, notFound, fail } from '../utils/response'
 import { forbidden } from '../utils/response'
 import { buildFullCourse } from './courses.controller'
+import { entitlementAllowsContent, resolveCourseEntitlement } from '../utils/entitlement'
+import { isUuid } from '../utils/objectAccess'
 import type {
   CourseRow, EnrollmentRow, AssignmentRow, AnnouncementRow,
   LiveClassRow, UserRow,
@@ -264,6 +266,9 @@ export async function getAssignments(req: Request, res: Response, next: NextFunc
 
 export async function getAssignment(req: Request, res: Response, next: NextFunction) {
   try {
+    // A malformed id must not reach Postgres as a UUID comparison (22P02 → 500);
+    // it is reported exactly like an assignment that does not exist.
+    if (!isUuid(req.params.id)) return notFound(res, 'Assignment not found or unavailable')
     const { rows } = await query<AssignmentRow & { course_title: string; status: string; score: number | null; feedback: string | null; returned_for_correction: boolean }>(
       `SELECT a.*, c.title AS course_title, s.status, s.score, s.feedback, s.returned_for_correction
        FROM assignments a
@@ -275,6 +280,14 @@ export async function getAssignment(req: Request, res: Response, next: NextFunct
     )
     if (!rows[0]) return notFound(res, 'Assignment not found or unavailable')
     const a = rows[0]
+    // Premium gates apply to the detail exactly as they do to the list above:
+    // an enrolled-but-unentitled student must not receive the assignment's
+    // questions/description. Same 404 as the list's omission, so a guessed id
+    // reveals nothing about the other course's content.
+    const entitlement = await resolveCourseEntitlement(req.user!.userId, a.course_id)
+    if (!entitlementAllowsContent(entitlement)) {
+      return notFound(res, 'Assignment not found or unavailable')
+    }
     return ok(res, {
       id: a.id, courseId: a.course_id, courseTitle: a.course_title, title: a.title,
       dueDate: a.due_date.toISOString().slice(0, 10), status: a.status ?? 'pending', totalMarks: Number(a.total_marks),
@@ -357,6 +370,16 @@ export async function completeLesson(req: Request, res: Response, next: NextFunc
       return res.status(404).json({ success: false, message: 'Lesson not found or you are not enrolled in this course' })
     }
 
+    // Premium courses must not be advanced by a student who holds no live
+    // entitlement, even when an enrollment row exists (e.g. the course became
+    // premium after enrolling). Denied before any completion row is written or
+    // progress is recomputed. Same message the course-content gate uses.
+    const courseId = lessonRows[0].course_id
+    const entitlement = await resolveCourseEntitlement(userId, courseId)
+    if (!entitlementAllowsContent(entitlement)) {
+      return forbidden(res, 'Premium access for this course is not active')
+    }
+
     // Product rule: a lesson is only checked off once the work attached to THAT
     // lesson has been submitted by this student.
     //   - quizzes with quizzes.lesson_id = this lesson need a submitted attempt
@@ -401,7 +424,6 @@ export async function completeLesson(req: Request, res: Response, next: NextFunc
     )
 
     // Calculate and update course progress
-    const courseId = lessonRows[0].course_id
     try {
       const { recomputeAndUpdateEnrollmentProgress } = await import('../utils/progress')
       await recomputeAndUpdateEnrollmentProgress(userId, courseId)

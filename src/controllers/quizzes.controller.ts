@@ -1,6 +1,7 @@
 import type { Request, Response, NextFunction } from 'express'
 import { query, getClient } from '../db/pool'
 import { ok, fail, notFound, forbidden } from '../utils/response'
+import { entitlementAllowsContent, resolveCourseEntitlement } from '../utils/entitlement'
 
 interface QuizRow {
   id: string; course_id: string; module_id: string | null; lesson_id: string | null
@@ -90,24 +91,58 @@ async function ensureQuizOwnership(req: Request, quizId: string): Promise<'missi
   return null
 }
 
+// ─── Student access to quiz content ──────────────────────────────────────────
+
+/**
+ * The student quiz gate. It keeps the app's original rule — enrolled, OR an
+ * active site-wide subscription, OR a verified payment for this course — and
+ * additionally requires the canonical premium entitlement (see
+ * src/utils/entitlement.ts). Without that second part an enrollment row created
+ * while the course was free would keep unlocking premium quiz content, which is
+ * exactly the bypass the premium audit found in the lesson/assignment paths.
+ *
+ * Returns the denial to send, or null when the caller may proceed.
+ */
+async function studentQuizDenial(
+  req: Request,
+  courseId: unknown,
+  enrollmentMessage: string
+): Promise<{ status: number; message: string } | null> {
+  const entitlement = await resolveCourseEntitlement(req.user!.userId, courseId)
+
+  // Unknown or malformed course id: deny exactly like "not enrolled" (and never
+  // let it reach Postgres as a UUID comparison, which would raise 22P02 → 500).
+  if (entitlement.status === 'missing') return { status: 403, message: enrollmentMessage }
+
+  if (entitlement.status !== 'free') {
+    return entitlementAllowsContent(entitlement)
+      ? null
+      : { status: 403, message: 'Premium access for this course is not active' }
+  }
+
+  const { rows } = await query(
+    `SELECT 1 FROM enrollments WHERE user_id = $1 AND course_id = $2
+     UNION ALL
+     SELECT 1 FROM subscriptions WHERE user_id = $1 AND status = 'active' AND ends_at > NOW()
+     UNION ALL
+     SELECT 1 FROM payments WHERE user_id = $1 AND course_id = $2 AND status = 'verified'
+     LIMIT 1`,
+    [req.user!.userId, courseId]
+  )
+  return rows[0] ? null : { status: 403, message: enrollmentMessage }
+}
+
 // ─── Quiz CRUD ───────────────────────────────────────────────────────────────
 
 export async function listQuizzes(req: Request, res: Response, next: NextFunction) {
   try {
     const courseId = req.params.courseId
 
-    // Authorization: student must be enrolled in the course.
+    // Authorization: student must be enrolled in the course — and hold a live
+    // premium entitlement when the course is premium.
     if (req.user!.role === 'student') {
-      const { rows: enrollRows } = await query(
-        `SELECT 1 FROM enrollments WHERE user_id = $1 AND course_id = $2
-         UNION ALL
-         SELECT 1 FROM subscriptions WHERE user_id = $1 AND status = 'active' AND ends_at > NOW()
-         UNION ALL
-         SELECT 1 FROM payments WHERE user_id = $1 AND course_id = $2 AND status = 'verified'
-         LIMIT 1`,
-        [req.user!.userId, courseId]
-      )
-      if (!enrollRows[0]) return forbidden(res, 'You must be enrolled in this course to view quizzes')
+      const denial = await studentQuizDenial(req, courseId, 'You must be enrolled in this course to view quizzes')
+      if (denial) return fail(res, denial.message, denial.status)
     }
 
     const { rows } = await query<QuizRow & { question_count: string; attempt_count: string }>(
@@ -141,19 +176,12 @@ export async function listLessonQuizzes(req: Request, res: Response, next: NextF
       [lessonId]
     )
 
-    // Authorization: student must be enrolled in the course.
+    // Authorization: student must be enrolled in the course — and hold a live
+    // premium entitlement when the course is premium.
     if (req.user!.role === 'student' && lessonRows[0]) {
       const courseId = lessonRows[0].course_id
-      const { rows: enrollRows } = await query(
-        `SELECT 1 FROM enrollments WHERE user_id = $1 AND course_id = $2
-         UNION ALL
-         SELECT 1 FROM subscriptions WHERE user_id = $1 AND status = 'active' AND ends_at > NOW()
-         UNION ALL
-         SELECT 1 FROM payments WHERE user_id = $1 AND course_id = $2 AND status = 'verified'
-         LIMIT 1`,
-        [req.user!.userId, courseId]
-      )
-      if (!enrollRows[0]) return forbidden(res, 'You must be enrolled in this course to view quizzes')
+      const denial = await studentQuizDenial(req, courseId, 'You must be enrolled in this course to view quizzes')
+      if (denial) return fail(res, denial.message, denial.status)
     }
 
     const { rows } = await query<QuizRow & { question_count: string; attempt_count: string }>(
@@ -184,19 +212,11 @@ export async function getQuiz(req: Request, res: Response, next: NextFunction) {
     )
     if (!quiz) return notFound(res, 'Quiz not found')
 
-    // Authorization: student must be enrolled in the quiz's course.
-    // Premium courses require a verified payment (enrollment is only created after payment).
+    // Authorization: student must be enrolled in the quiz's course (and hold a
+    // live premium entitlement when that course is premium).
     if (req.user!.role === 'student') {
-      const { rows: enrollRows } = await query(
-        `SELECT 1 FROM enrollments WHERE user_id = $1 AND course_id = $2
-         UNION ALL
-         SELECT 1 FROM subscriptions WHERE user_id = $1 AND status = 'active' AND ends_at > NOW()
-         UNION ALL
-         SELECT 1 FROM payments WHERE user_id = $1 AND course_id = $2 AND status = 'verified'
-         LIMIT 1`,
-        [req.user!.userId, quiz.course_id]
-      )
-      if (!enrollRows[0]) return forbidden(res, 'You must be enrolled in this course to view this quiz')
+      const denial = await studentQuizDenial(req, quiz.course_id, 'You must be enrolled in this course to view this quiz')
+      if (denial) return fail(res, denial.message, denial.status)
     }
 
     const { rows: questions } = await query<QuestionRow>(
@@ -445,18 +465,10 @@ export async function startQuizAttempt(req: Request, res: Response, next: NextFu
     )
     if (!quiz) return notFound(res, 'Quiz not found')
     
-    // Authorization: student must be enrolled in the quiz's course.
-    // Premium courses require a verified payment (enrollment is only created after payment).
-    const { rows: enrollRows } = await query(
-      `SELECT 1 FROM enrollments WHERE user_id = $1 AND course_id = $2
-       UNION ALL
-       SELECT 1 FROM subscriptions WHERE user_id = $1 AND status = 'active' AND ends_at > NOW()
-       UNION ALL
-       SELECT 1 FROM payments WHERE user_id = $1 AND course_id = $2 AND status = 'verified'
-       LIMIT 1`,
-      [userId, quiz.course_id]
-    )
-    if (!enrollRows[0]) return forbidden(res, 'You must be enrolled in this course to take this quiz')
+    // Authorization: enrolled in the quiz's course, plus a live premium
+    // entitlement when that course is premium.
+    const startDenial = await studentQuizDenial(req, quiz.course_id, 'You must be enrolled in this course to take this quiz')
+    if (startDenial) return fail(res, startDenial.message, startDenial.status)
     
     // Check if user has remaining attempts
     const { rows: [attemptCount] } = await query<{ count: string }>(
@@ -507,17 +519,10 @@ export async function submitQuizAttempt(req: Request, res: Response, next: NextF
     )
     if (!quiz) return notFound(res, 'Quiz not found')
     
-    // Authorization: student must be enrolled in the quiz's course.
-    const { rows: enrollRows } = await query(
-      `SELECT 1 FROM enrollments WHERE user_id = $1 AND course_id = $2
-       UNION ALL
-       SELECT 1 FROM subscriptions WHERE user_id = $1 AND status = 'active' AND ends_at > NOW()
-       UNION ALL
-       SELECT 1 FROM payments WHERE user_id = $1 AND course_id = $2 AND status = 'verified'
-       LIMIT 1`,
-      [userId, quiz.course_id]
-    )
-    if (!enrollRows[0]) return forbidden(res, 'You must be enrolled in this course to submit this quiz')
+    // Authorization: enrolled in the quiz's course, plus a live premium
+    // entitlement when that course is premium.
+    const submitDenial = await studentQuizDenial(req, quiz.course_id, 'You must be enrolled in this course to submit this quiz')
+    if (submitDenial) return fail(res, submitDenial.message, submitDenial.status)
     
     // Get all questions with correct answers
     const { rows: questions } = await query<QuestionRow>(
@@ -683,17 +688,10 @@ export async function getQuizAttempts(req: Request, res: Response, next: NextFun
     )
     if (!quiz) return notFound(res, 'Quiz not found')
     
-    // Authorization: student must be enrolled in the quiz's course.
-    const { rows: enrollRows } = await query(
-      `SELECT 1 FROM enrollments WHERE user_id = $1 AND course_id = $2
-       UNION ALL
-       SELECT 1 FROM subscriptions WHERE user_id = $1 AND status = 'active' AND ends_at > NOW()
-       UNION ALL
-       SELECT 1 FROM payments WHERE user_id = $1 AND course_id = $2 AND status = 'verified'
-       LIMIT 1`,
-      [userId, quiz.course_id]
-    )
-    if (!enrollRows[0]) return forbidden(res, 'You must be enrolled in this course to view attempts')
+    // Authorization: enrolled in the quiz's course, plus a live premium
+    // entitlement when that course is premium.
+    const attemptsDenial = await studentQuizDenial(req, quiz.course_id, 'You must be enrolled in this course to view attempts')
+    if (attemptsDenial) return fail(res, attemptsDenial.message, attemptsDenial.status)
     
     const { rows } = await query<AttemptRow>(
       `SELECT * FROM quiz_attempts 
