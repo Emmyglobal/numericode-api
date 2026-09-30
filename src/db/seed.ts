@@ -15,6 +15,7 @@ import { ensureSs1ThirdTermCourse } from './ss1-third-term'
 import { ensureReactCourse } from './react-course'
 import { ensureHtmlCssFundamentalsCourse } from './html-css-fundamentals'
 import { ensureMathToCodingCourse } from './math-to-coding'
+import { ensureSevenDayMathChallengeCourse } from './seven-day-math-challenge'
 
 export async function seed() {
   console.log('Seeding database...')
@@ -237,6 +238,9 @@ export async function seed() {
     await ensureReactCourse()
     await ensureHtmlCssFundamentalsCourse()
     await ensureMathToCodingCourse()
+    // Free-entry acquisition course (access_level = 'free'), created after the
+    // trainer accounts exist so it can be owned by a real active trainer.
+    await ensureSevenDayMathChallengeCourse()
     return
   }
 
@@ -1814,6 +1818,7 @@ If 250 were claimed as a term of 3, 8, 13…, solving 5n − 2 = 250 gives non-i
     await ensureReactCourse()
     await ensureHtmlCssFundamentalsCourse()
     await ensureMathToCodingCourse()
+    await ensureSevenDayMathChallengeCourse()
     await ensureExternalCourseFiles()
   console.log('Seed complete.')
   console.log(`  Admin:   emmanuel@numerycode.com      / password123`)
