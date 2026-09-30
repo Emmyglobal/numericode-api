@@ -1,5 +1,11 @@
 import { query } from '../pool'
-import type { ChallengeModuleData, ChallengeQuizData } from './types'
+import type {
+  ChallengeAssignmentData,
+  ChallengeLessonData,
+  ChallengeModuleData,
+  ChallengeQuizData,
+} from './types'
+import { CHALLENGE_WORK } from './work'
 import { day1 } from './day1'
 import { day2 } from './day2'
 import { day3 } from './day3'
@@ -39,14 +45,25 @@ const CHALLENGE_LESSON_COUNT = CHALLENGE_MODULES.reduce(
   0,
 )
 
+/** The quiz a lesson actually gets: its 3-question check, or its per-day quiz. */
+function quizFor(lesson: ChallengeLessonData): ChallengeQuizData | undefined {
+  return CHALLENGE_WORK[lesson.title]?.quiz ?? lesson.quiz
+}
+
 const CHALLENGE_QUIZ_COUNT = CHALLENGE_MODULES.reduce(
-  (total, module) => total + module.lessons.filter((lesson) => lesson.quiz).length,
+  (total, module) => total + module.lessons.filter((lesson) => quizFor(lesson)).length,
   0,
 )
 
 const CHALLENGE_QUESTION_COUNT = CHALLENGE_MODULES.reduce(
   (total, module) =>
-    total + module.lessons.reduce((sum, lesson) => sum + (lesson.quiz?.questions.length ?? 0), 0),
+    total +
+    module.lessons.reduce((sum, lesson) => sum + (quizFor(lesson)?.questions.length ?? 0), 0),
+  0,
+)
+
+const CHALLENGE_ASSIGNMENT_COUNT = CHALLENGE_MODULES.reduce(
+  (total, module) => total + module.lessons.length,
   0,
 )
 
@@ -123,6 +140,38 @@ async function ensureLessonQuiz(
   }
 }
 
+/**
+ * Inserts the lesson's assignment (with its questions) unless it exists.
+ * Located by (lesson_id, title), so re-seeding never duplicates work.
+ */
+async function ensureLessonAssignment(
+  lessonId: string,
+  courseId: string,
+  assignment: ChallengeAssignmentData,
+): Promise<void> {
+  const { rows: existing } = await query<{ id: string }>(
+    'SELECT id FROM assignments WHERE lesson_id = $1 AND title = $2 LIMIT 1',
+    [lessonId, assignment.title],
+  )
+  if (existing[0]) return
+
+  await query(
+    `INSERT INTO assignments (course_id, lesson_id, title, description, due_date, total_marks, passing_score, assignment_type, questions)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+    [
+      courseId,
+      lessonId,
+      assignment.title,
+      assignment.description,
+      assignment.dueDate,
+      assignment.totalMarks,
+      assignment.passingScore,
+      assignment.assignmentType,
+      JSON.stringify(assignment.questions),
+    ],
+  )
+}
+
 export async function ensureSevenDayMathChallengeCourse(): Promise<void> {
   // Same trainer-lookup pattern as the other course seeders, so the course is
   // owned by a real active trainer and appears in the Trainer Portal.
@@ -196,6 +245,16 @@ export async function ensureSevenDayMathChallengeCourse(): Promise<void> {
     )
 
     for (const [lessonPosition, lesson] of module.lessons.entries()) {
+      // A lesson's quiz and assignment are keyed by its exact title. A mismatch
+      // would silently seed a lesson with no graded work, so fail loudly instead.
+      const work = CHALLENGE_WORK[lesson.title]
+      if (!work) {
+        throw new Error(
+          `7-Day Mathematics Challenge: no CHALLENGE_WORK entry for lesson "${lesson.title}". ` +
+            'Add it to the matching work-dayN.ts file.',
+        )
+      }
+
       const { rows: insertedLesson } = await query<{ id: string }>(
         `INSERT INTO lessons (module_id, title, content, duration, position)
          VALUES ($1, $2, $3, $4, $5) RETURNING id`,
@@ -210,15 +269,21 @@ export async function ensureSevenDayMathChallengeCourse(): Promise<void> {
         [insertedLesson[0].id],
       )
 
-      if (lesson.quiz) {
-        await ensureLessonQuiz(insertedLesson[0].id, courseId, lesson.quiz, instructorId)
+      // The short 3-question check belongs to the topic lessons; the practice and
+      // assessment lessons already carry their own larger per-day quiz.
+      const quiz = work.quiz ?? lesson.quiz
+      if (quiz) {
+        await ensureLessonQuiz(insertedLesson[0].id, courseId, quiz, instructorId)
       }
+
+      await ensureLessonAssignment(insertedLesson[0].id, courseId, work.assignment)
     }
   }
 
   console.log(
     `  Seeded ${CHALLENGE_COURSE_TITLE} ` +
       `(${CHALLENGE_MODULES.length} modules, ${CHALLENGE_LESSON_COUNT} lessons, ` +
-      `${CHALLENGE_QUIZ_COUNT} quizzes, ${CHALLENGE_QUESTION_COUNT} questions).`,
+      `${CHALLENGE_QUIZ_COUNT} quizzes, ${CHALLENGE_QUESTION_COUNT} quiz questions, ` +
+      `${CHALLENGE_ASSIGNMENT_COUNT} assignments).`,
   )
 }

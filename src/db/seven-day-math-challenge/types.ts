@@ -39,6 +39,40 @@ export interface ChallengeLessonData {
   quiz?: ChallengeQuizData
 }
 
+// ── Per-lesson assignment shape (mirrors the existing assignments table) ──────
+export interface ChallengeAssignmentQuestion {
+  id: string
+  type: 'theory' | 'subjective' | 'file'
+  title: string
+  marks: number
+}
+
+export interface ChallengeAssignmentData {
+  title: string
+  description: string
+  /** ISO timestamp. Far in the future: this is an open self-paced free course,
+   *  so a hard expiry would leave late enrolees with permanently overdue work. */
+  dueDate: string
+  totalMarks: number
+  passingScore: number
+  assignmentType: 'theory' | 'subjective' | 'file' | 'mixed'
+  questions: ChallengeAssignmentQuestion[]
+}
+
+/**
+ * Extra graded work attached to a lesson, keyed by the lesson's exact title.
+ * Follows the existing `LESSON_EXTRAS` pattern in src/db/ss2-mathematics: the
+ * lesson files hold the teaching content, and this supplies the quiz and the
+ * assignment so the seeder can attach them to the lesson they belong to.
+ */
+export interface ChallengeLessonWork {
+  /** A short 3-question check. The larger per-day quiz lives on the practice
+   *  lesson itself, so this is omitted for practice/assessment lessons. */
+  quiz?: ChallengeQuizData
+  assignment: ChallengeAssignmentData
+}
+
+
 export interface ChallengeModuleData {
   title: string
   lessons: ChallengeLessonData[]
