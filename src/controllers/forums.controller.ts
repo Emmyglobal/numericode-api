@@ -1,6 +1,13 @@
 import type { Request, Response, NextFunction } from 'express'
 import { query } from '../db/pool'
 import { ok, fail, notFound, forbidden } from '../utils/response'
+import {
+  accessToCourse,
+  accessToForumCategory,
+  accessToForumPost,
+  accessToForumThread,
+  isAdmin,
+} from '../utils/objectAccess'
 
 interface ForumCategoryRow {
   id: string; course_id: string | null; name: string; description: string | null
@@ -54,7 +61,21 @@ export async function createForumCategory(req: Request, res: Response, next: Nex
     }
     
     if (!name) return fail(res, 'Category name is required', 400)
-    
+
+    // Categories are course configuration, not user content: the instructor of
+    // the target course (or an admin) manages them. The course id is only a
+    // lookup key — ownership is read back from the database.
+    if (courseId) {
+      const access = await accessToCourse(req, courseId)
+      if (access === 'missing') return notFound(res, 'Course not found')
+      if (access === 'forbidden') {
+        return forbidden(res, 'You can only manage forum categories for your own courses')
+      }
+    } else if (!isAdmin(req)) {
+      // Course-less (global) category — no instructor exists to authorize.
+      return forbidden(res, 'You can only manage forum categories for your own courses')
+    }
+
     const { rows: [category] } = await query<ForumCategoryRow>(
       `INSERT INTO forum_categories (course_id, name, description, position)
        VALUES ($1, $2, $3, $4) RETURNING *`,
@@ -74,7 +95,14 @@ export async function updateForumCategory(req: Request, res: Response, next: Nex
     const { name, description, position } = req.body as {
       name?: string; description?: string; position?: number
     }
-    
+
+    // Resolve the category's owning course before touching the row.
+    const access = await accessToForumCategory(req, req.params.categoryId)
+    if (access === 'missing') return notFound(res, 'Category not found')
+    if (access === 'forbidden') {
+      return forbidden(res, 'You can only manage forum categories for your own courses')
+    }
+
     const { rows: [category] } = await query<ForumCategoryRow>(
       `UPDATE forum_categories SET
         name = COALESCE($1, name), description = COALESCE($2, description),
@@ -95,6 +123,12 @@ export async function updateForumCategory(req: Request, res: Response, next: Nex
 
 export async function deleteForumCategory(req: Request, res: Response, next: NextFunction) {
   try {
+    const access = await accessToForumCategory(req, req.params.categoryId)
+    if (access === 'missing') return notFound(res, 'Category not found')
+    if (access === 'forbidden') {
+      return forbidden(res, 'You can only manage forum categories for your own courses')
+    }
+
     const { rows } = await query('DELETE FROM forum_categories WHERE id = $1 RETURNING id', [req.params.categoryId])
     if (!rows[0]) return notFound(res, 'Category not found')
     return ok(res, { deleted: true })
@@ -175,7 +209,12 @@ export async function updateForumThread(req: Request, res: Response, next: NextF
     const { title, body, isPinned, isLocked } = req.body as {
       title?: string; body?: string; isPinned?: boolean; isLocked?: boolean
     }
-    
+
+    // Ownership comes from the stored thread row, never from the request.
+    const access = await accessToForumThread(req, req.params.threadId)
+    if (access === 'missing') return notFound(res, 'Thread not found')
+    if (access === 'forbidden') return forbidden(res, 'You can only edit your own threads')
+
     const { rows: [thread] } = await query<ForumThreadRow>(
       `UPDATE forum_threads SET
         title = COALESCE($1, title), body = COALESCE($2, body),
@@ -198,6 +237,10 @@ export async function updateForumThread(req: Request, res: Response, next: NextF
 
 export async function deleteForumThread(req: Request, res: Response, next: NextFunction) {
   try {
+    const access = await accessToForumThread(req, req.params.threadId)
+    if (access === 'missing') return notFound(res, 'Thread not found')
+    if (access === 'forbidden') return forbidden(res, 'You can only delete your own threads')
+
     const { rows } = await query('DELETE FROM forum_threads WHERE id = $1 RETURNING id', [req.params.threadId])
     if (!rows[0]) return notFound(res, 'Thread not found')
     return ok(res, { deleted: true })
@@ -258,7 +301,26 @@ export async function createForumPost(req: Request, res: Response, next: NextFun
 export async function updateForumPost(req: Request, res: Response, next: NextFunction) {
   try {
     const { body, isSolution } = req.body as { body?: string; isSolution?: boolean }
-    
+
+    // Two distinct privileges live on this route, so resolve both from the
+    // database before mutating anything:
+    //   • editing the post text belongs to the post author (or an admin)
+    //   • marking a reply as the solution belongs to the thread author (or admin)
+    const postAccess = await accessToForumPost(req, req.params.postId, req.params.threadId)
+    if (postAccess === 'missing') return notFound(res, 'Post not found')
+
+    const mayEditBody = postAccess === 'allowed'
+    const mayMarkSolution = (await accessToForumThread(req, req.params.threadId)) === 'allowed'
+
+    if (body !== undefined && !mayEditBody) return forbidden(res, 'You can only edit your own posts')
+    if (isSolution !== undefined && !mayMarkSolution) {
+      return forbidden(res, 'You can only mark a solution on your own thread')
+    }
+    // Nothing requested that this caller is entitled to change.
+    if (body === undefined && isSolution === undefined && !mayEditBody) {
+      return forbidden(res, 'You can only edit your own posts')
+    }
+
     const { rows: [post] } = await query<ForumPostRow>(
       `UPDATE forum_posts SET
         body = COALESCE($1, body), is_solution = COALESCE($2, is_solution),
@@ -279,6 +341,10 @@ export async function updateForumPost(req: Request, res: Response, next: NextFun
 
 export async function deleteForumPost(req: Request, res: Response, next: NextFunction) {
   try {
+    const access = await accessToForumPost(req, req.params.postId, req.params.threadId)
+    if (access === 'missing') return notFound(res, 'Post not found')
+    if (access === 'forbidden') return forbidden(res, 'You can only delete your own posts')
+
     const { rows } = await query(
       'DELETE FROM forum_posts WHERE id = $1 AND thread_id = $2 RETURNING id',
       [req.params.postId, req.params.threadId]

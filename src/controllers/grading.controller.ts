@@ -1,6 +1,17 @@
 import type { Request, Response, NextFunction } from 'express'
 import { query } from '../db/pool'
 import { ok, fail, notFound, forbidden } from '../utils/response'
+import {
+  accessToCourse,
+  accessToCourseOwningAssignment,
+  accessToCourseOwningGradeCategory,
+  accessToCourseOwningRubric,
+  accessToCourseOwningSubmission,
+  denyAccess,
+  isEnrolledIn,
+  readAccessToSubmission,
+  rubricBelongsToAssignment,
+} from '../utils/objectAccess'
 
 interface RubricRow {
   id: string; assignment_id: string; criteria_name: string; description: string | null
@@ -25,6 +36,10 @@ interface StudentGradeRow {
 export async function listGradingRubrics(req: Request, res: Response, next: NextFunction) {
   try {
     const { assignmentId } = req.params
+    // Any trainer may otherwise read the rubric of any assignment in the
+    // platform — the assignment's course owner (or an admin) decides.
+    const access = await accessToCourseOwningAssignment(req, assignmentId)
+    if (denyAccess(res, access, 'Assignment not found', 'You can only manage rubrics for assignments in your own courses')) return
     const { rows } = await query<RubricRow>(
       'SELECT * FROM grading_rubrics WHERE assignment_id = $1 ORDER BY position',
       [assignmentId]
@@ -39,13 +54,24 @@ export async function listGradingRubrics(req: Request, res: Response, next: Next
 
 export async function createGradingRubric(req: Request, res: Response, next: NextFunction) {
   try {
-    const { assignmentId, criteriaName, description, maxScore, position } = req.body as {
-      assignmentId: string; criteriaName: string; description?: string; maxScore: number; position?: number
+    const { assignmentId: bodyAssignmentId, criteriaName, description, maxScore, position } = req.body as {
+      assignmentId?: string; criteriaName: string; description?: string; maxScore: number; position?: number
     }
     
-    if (!assignmentId || !criteriaName || !maxScore) {
-      return fail(res, 'Assignment ID, criteria name, and max score are required', 400)
+    // The assignment named in the path is authoritative: a body-supplied id can
+    // never redirect the insert into another trainer's assignment.
+    const assignmentId = req.params.assignmentId
+    if (bodyAssignmentId && bodyAssignmentId !== assignmentId) {
+      return fail(res, 'Assignment ID does not match the requested assignment', 400)
     }
+
+    if (!criteriaName || !maxScore) {
+      return fail(res, 'Criteria name and max score are required', 400)
+    }
+
+    // Ownership is resolved through assignments → courses → instructor_id.
+    const access = await accessToCourseOwningAssignment(req, assignmentId)
+    if (denyAccess(res, access, 'Assignment not found', 'You can only manage rubrics for assignments in your own courses')) return
     
     const { rows: [rubric] } = await query<RubricRow>(
       `INSERT INTO grading_rubrics (assignment_id, criteria_name, description, max_score, position)
@@ -63,6 +89,11 @@ export async function createGradingRubric(req: Request, res: Response, next: Nex
 
 export async function updateGradingRubric(req: Request, res: Response, next: NextFunction) {
   try {
+    // The rubric's owning course decides — grading_rubrics → assignments →
+    // courses.instructor_id. Without this any trainer could rewrite any rubric.
+    const access = await accessToCourseOwningRubric(req, req.params.rubricId)
+    if (denyAccess(res, access, 'Rubric not found', 'You can only manage rubrics for assignments in your own courses')) return
+
     const { criteriaName, description, maxScore, position } = req.body as {
       criteriaName?: string; description?: string; maxScore?: number; position?: number
     }
@@ -87,6 +118,9 @@ export async function updateGradingRubric(req: Request, res: Response, next: Nex
 
 export async function deleteGradingRubric(req: Request, res: Response, next: NextFunction) {
   try {
+    const access = await accessToCourseOwningRubric(req, req.params.rubricId)
+    if (denyAccess(res, access, 'Rubric not found', 'You can only manage rubrics for assignments in your own courses')) return
+
     const { rows } = await query('DELETE FROM grading_rubrics WHERE id = $1 RETURNING id', [req.params.rubricId])
     if (!rows[0]) return notFound(res, 'Rubric not found')
     return ok(res, { deleted: true })
@@ -104,14 +138,33 @@ export async function submitRubricScores(req: Request, res: Response, next: Next
       return fail(res, 'Scores array is required', 400)
     }
     
-    // Verify submission exists
-    const { rows: [submission] } = await query(
-      'SELECT * FROM submissions WHERE id = $1',
+    // Grading writes into another person's record, so the submission id alone
+    // is not enough: resolve submissions → assignments → courses.instructor_id
+    // and require the caller to instruct that course (or be an admin).
+    const access = await accessToCourseOwningSubmission(req, submissionId)
+    if (denyAccess(res, access, 'Submission not found', 'You can only grade submissions in your own courses')) return
+
+    // Verify submission exists (and learn which assignment it answers)
+    const { rows: [submission] } = await query<{ assignment_id: string }>(
+      'SELECT assignment_id FROM submissions WHERE id = $1',
       [submissionId]
     )
     if (!submission) return notFound(res, 'Submission not found')
+
+    // Every rubric being scored must belong to that assignment, otherwise a
+    // trainer could attach their own rubric to someone else's submission.
+    for (const scoreData of scores) {
+      if (!(await rubricBelongsToAssignment(scoreData.rubricId, submission.assignment_id))) {
+        return fail(res, 'Every rubric must belong to the assignment of this submission', 400)
+      }
+    }
     
-    const client = await req.app.locals.dbClient || (await import('../db/pool')).getClient()
+    // NOTE: `await req.app.locals.dbClient || getClient()` parses as
+    // (await dbClient) || getClient() — the right-hand side is a *Promise*, so
+    // `client.query`/`client.release` would not exist and the endpoint would
+    // always answer 500. Await the client itself.
+    const injected = await req.app.locals.dbClient
+    const client = injected ?? await (await import('../db/pool')).getClient()
     
     try {
       await client.query('BEGIN')
@@ -154,6 +207,12 @@ export async function submitRubricScores(req: Request, res: Response, next: Next
 export async function getRubricScores(req: Request, res: Response, next: NextFunction) {
   try {
     const { submissionId } = req.params
+    // This route is open to every role (a student must be able to read their own
+    // feedback), so the decision is made here: the submitting student, the
+    // instructor of the course, or an admin — never an arbitrary user id.
+    const readAccess = await readAccessToSubmission(req, submissionId)
+    if (denyAccess(res, readAccess, 'Submission not found', "You can only view rubric feedback for your own submissions")) return
+
     const { rows } = await query<RubricScoreRow & { criteria_name: string; max_score: number }>(
       `SELECT rs.*, r.criteria_name, r.max_score
        FROM rubric_scores rs
@@ -176,6 +235,11 @@ export async function getRubricScores(req: Request, res: Response, next: NextFun
 export async function listGradeCategories(req: Request, res: Response, next: NextFunction) {
   try {
     const { courseId } = req.params
+    // Trainer-only is not enough: only the owner of this course may read its
+    // grading configuration.
+    const access = await accessToCourse(req, courseId)
+    if (denyAccess(res, access, 'Course not found', 'You can only manage grade categories in your own courses')) return
+
     const { rows } = await query<GradeCategoryRow>(
       'SELECT * FROM grade_categories WHERE course_id = $1 ORDER BY name',
       [courseId]
@@ -189,11 +253,23 @@ export async function listGradeCategories(req: Request, res: Response, next: Nex
 
 export async function createGradeCategory(req: Request, res: Response, next: NextFunction) {
   try {
-    const { courseId, name, weight } = req.body as { courseId: string; name: string; weight: number }
-    
-    if (!courseId || !name || !weight) {
-      return fail(res, 'Course ID, name, and weight are required', 400)
+    const { courseId: bodyCourseId, name, weight } = req.body as {
+      courseId?: string; name?: string; weight?: number
     }
+    
+    // The course in the path is authoritative (and is the one the trainer must
+    // own); a body-supplied course id can never create categories on someone
+    // else's course.
+    const courseId = req.params.courseId
+    if (bodyCourseId && bodyCourseId !== courseId) {
+      return fail(res, 'Course ID does not match the requested course', 400)
+    }
+    if (!name || weight === undefined || weight === null) {
+      return fail(res, 'Name and weight are required', 400)
+    }
+
+    const categoryAccess = await accessToCourse(req, courseId)
+    if (denyAccess(res, categoryAccess, 'Course not found', 'You can only manage grade categories in your own courses')) return
     
     const { rows: [category] } = await query<GradeCategoryRow>(
       `INSERT INTO grade_categories (course_id, name, weight)
@@ -210,6 +286,11 @@ export async function createGradeCategory(req: Request, res: Response, next: Nex
 
 export async function updateGradeCategory(req: Request, res: Response, next: NextFunction) {
   try {
+    // grade_categories → courses.instructor_id decides; the id in the path is
+    // only a lookup key.
+    const access = await accessToCourseOwningGradeCategory(req, req.params.categoryId)
+    if (denyAccess(res, access, 'Grade category not found', 'You can only manage grade categories in your own courses')) return
+
     const { name, weight } = req.body as { name?: string; weight?: number }
     
     const { rows: [category] } = await query<GradeCategoryRow>(
@@ -230,6 +311,9 @@ export async function updateGradeCategory(req: Request, res: Response, next: Nex
 
 export async function deleteGradeCategory(req: Request, res: Response, next: NextFunction) {
   try {
+    const access = await accessToCourseOwningGradeCategory(req, req.params.categoryId)
+    if (denyAccess(res, access, 'Grade category not found', 'You can only manage grade categories in your own courses')) return
+
     const { rows } = await query('DELETE FROM grade_categories WHERE id = $1 RETURNING id', [req.params.categoryId])
     if (!rows[0]) return notFound(res, 'Grade category not found')
     return ok(res, { deleted: true })
@@ -242,6 +326,16 @@ export async function getStudentGradeReport(req: Request, res: Response, next: N
   try {
     const { courseId } = req.params
     const userId = req.user!.userId
+    // The report is always computed for the caller (never for an id from the
+    // request), but the course must exist and the caller must belong to it —
+    // otherwise anyone could read another course's grading configuration.
+    // The existence check runs for admins too: an unknown course is a 404
+    // rather than a report built from empty data.
+    const reportAccess = await accessToCourse(req, courseId)
+    if (reportAccess === 'missing') return notFound(res, 'Course not found')
+    if (reportAccess === 'forbidden' && !(await isEnrolledIn(userId, courseId))) {
+      return forbidden(res, 'You can only view the grade report for courses you are enrolled in')
+    }
 
     // Course-wide quiz + assignment averages — computed ONCE, outside the
     // categories loop, so a student's quiz performance always rolls into the
@@ -461,6 +555,11 @@ export async function updateGradeVisibility(req: Request, res: Response, next: N
   try {
     const { courseId } = req.params
     const { showGrades, showRankings } = req.body as { showGrades?: boolean; showRankings?: boolean }
+
+    // Writes course_completion_settings for the course named in the path — only
+    // its instructor (or an admin) may do that.
+    const visibilityAccess = await accessToCourse(req, courseId)
+    if (denyAccess(res, visibilityAccess, 'Course not found', 'You can only manage grade visibility for your own courses')) return
 
     // Create or update grade visibility settings
     await query(

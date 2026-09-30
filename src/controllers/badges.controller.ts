@@ -1,7 +1,13 @@
 import type { Request, Response, NextFunction } from 'express'
 import { query } from '../db/pool'
-import { ok, fail, notFound } from '../utils/response'
+import { ok, fail, notFound, forbidden } from '../utils/response'
 import { notifyUser } from '../utils/notify'
+import {
+  accessToCourse,
+  accessToCourseOwningAssignment,
+  isAdmin,
+  isUuid,
+} from '../utils/objectAccess'
 
 interface BadgeRow {
   id: string; name: string; description: string; icon_url: string | null
@@ -74,6 +80,10 @@ export async function updateBadge(req: Request, res: Response, next: NextFunctio
       name?: string; description?: string; iconUrl?: string; criteria?: unknown
     }
 
+    // A malformed id must never reach Postgres as a UUID comparison (22P02 → 500);
+    // it is reported exactly like a badge that does not exist.
+    if (!isUuid(req.params.badgeId)) return notFound(res, 'Badge not found')
+
     const { rows: [badge] } = await query<BadgeRow>(
       `UPDATE badges SET
         name = COALESCE($1, name),
@@ -99,6 +109,7 @@ export async function updateBadge(req: Request, res: Response, next: NextFunctio
 
 export async function deleteBadge(req: Request, res: Response, next: NextFunction) {
   try {
+    if (!isUuid(req.params.badgeId)) return notFound(res, 'Badge not found')
     const { rows } = await query('DELETE FROM badges WHERE id = $1 RETURNING id', [req.params.badgeId])
     if (!rows[0]) return notFound(res, 'Badge not found')
     return ok(res, { deleted: true })
@@ -146,6 +157,54 @@ export async function awardBadge(req: Request, res: Response, next: NextFunction
       return fail(res, 'User ID and badge ID are required', 400)
     }
 
+    // Awarding an achievement is a privileged action. An admin may award
+    // anywhere; a trainer only inside a course they actually instruct — the
+    // course id from the body is verified against courses.instructor_id, so a
+    // student (or a trainer acting outside their own course) cannot self-award.
+    if (!isAdmin(req)) {
+      if (req.user?.role !== 'trainer') {
+        return forbidden(res, 'You do not have permission to award badges')
+      }
+      if (!courseId) {
+        return forbidden(res, 'Trainers may only award badges within their own courses')
+      }
+      const access = await accessToCourse(req, courseId)
+      if (access === 'missing') return notFound(res, 'Course not found')
+      if (access === 'forbidden') {
+        return forbidden(res, 'You can only award badges within your own courses')
+      }
+    }
+
+    // Body-supplied ids are lookup keys only: confirm each really exists so a
+    // bad id is a 404 rather than a foreign-key 500. Course is checked too —
+    // a trainer award carries an explicit course, otherwise NULL means global.
+    // A malformed (non-UUID) course id is refused the same way: it must never
+    // reach Postgres, and every caller — admin included — gets the same 404.
+    if (courseId !== undefined && courseId !== null && courseId !== '') {
+      if (!isUuid(courseId)) return notFound(res, 'Course not found')
+      const { rows: [course] } = await query<{ id: string }>(
+        'SELECT id FROM courses WHERE id = $1',
+        [courseId]
+      )
+      if (!course) return notFound(res, 'Course not found')
+    }
+
+    // A malformed id is reported exactly like a non-existent one (and never
+    // reaches Postgres as a UUID comparison, which would raise 22P02 → 500).
+    if (!isUuid(badgeId)) return notFound(res, 'Badge not found')
+    const { rows: [badge] } = await query<{ name: string }>(
+      'SELECT name FROM badges WHERE id = $1',
+      [badgeId]
+    )
+    if (!badge) return notFound(res, 'Badge not found')
+
+    if (!isUuid(userId)) return notFound(res, 'User not found')
+    const { rows: [recipient] } = await query<{ id: string }>(
+      'SELECT id FROM users WHERE id = $1',
+      [userId]
+    )
+    if (!recipient) return notFound(res, 'User not found')
+
     const { rows: [userBadge] } = await query<UserBadgeRow>(
       `INSERT INTO user_badges (user_id, badge_id, course_id)
        VALUES ($1, $2, $3) RETURNING *`,
@@ -153,16 +212,13 @@ export async function awardBadge(req: Request, res: Response, next: NextFunction
     )
 
     // Send notification to user
-    const { rows: [badge] } = await query<{ name: string }>('SELECT name FROM badges WHERE id = $1', [badgeId])
-    if (badge) {
-      await notifyUser(
-        userId,
-        'Badge Earned!',
-        `Congratulations! You've earned the "${badge.name}" badge`,
-        'general',
-        '/dashboard/badges'
-      )
-    }
+    await notifyUser(
+      userId,
+      'Badge Earned!',
+      `Congratulations! You've earned the "${badge.name}" badge`,
+      'general',
+      '/dashboard/badges'
+    )
 
     return ok(res, {
       id: userBadge.id,
@@ -226,6 +282,8 @@ export async function updateCertificateTemplate(req: Request, res: Response, nex
       name?: string; htmlTemplate?: string; cssStyles?: string; isDefault?: boolean
     }
 
+    if (!isUuid(req.params.templateId)) return notFound(res, 'Template not found')
+
     const { rows: [template] } = await query<TemplateRow>(
       `UPDATE certificate_templates SET
         name = COALESCE($1, name),
@@ -251,6 +309,7 @@ export async function updateCertificateTemplate(req: Request, res: Response, nex
 
 export async function deleteCertificateTemplate(req: Request, res: Response, next: NextFunction) {
   try {
+    if (!isUuid(req.params.templateId)) return notFound(res, 'Template not found')
     const { rows } = await query('DELETE FROM certificate_templates WHERE id = $1 RETURNING id', [req.params.templateId])
     if (!rows[0]) return notFound(res, 'Template not found')
     return ok(res, { deleted: true })
@@ -290,6 +349,14 @@ export async function setLateSubmissionPenalty(req: Request, res: Response, next
       penaltyPerHour: number; maxPenalty: number; gracePeriod: number
     }
 
+    // Late-penalty rules are trainer configuration for an assignment: only the
+    // instructor who owns the assignment's course (or an admin) may set them.
+    const access = await accessToCourseOwningAssignment(req, assignmentId)
+    if (access === 'missing') return notFound(res, 'Assignment not found')
+    if (access === 'forbidden') {
+      return forbidden(res, 'You can only manage penalties for assignments in your own courses')
+    }
+
     const { rows: [penalty] } = await query<PenaltyRow>(
       `INSERT INTO late_submission_penalties (assignment_id, penalty_per_hour, max_penalty, grace_period)
        VALUES ($1, $2, $3, $4)
@@ -315,6 +382,12 @@ export async function setLateSubmissionPenalty(req: Request, res: Response, next
 
 export async function deleteLateSubmissionPenalty(req: Request, res: Response, next: NextFunction) {
   try {
+    const access = await accessToCourseOwningAssignment(req, req.params.assignmentId)
+    if (access === 'missing') return notFound(res, 'Assignment not found')
+    if (access === 'forbidden') {
+      return forbidden(res, 'You can only manage penalties for assignments in your own courses')
+    }
+
     const { rows } = await query(
       'DELETE FROM late_submission_penalties WHERE assignment_id = $1 RETURNING id',
       [req.params.assignmentId]

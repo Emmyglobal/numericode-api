@@ -1,6 +1,13 @@
 import type { Request, Response, NextFunction } from 'express'
 import { query } from '../db/pool'
-import { ok, fail, notFound } from '../utils/response'
+import { ok, fail, notFound, forbidden } from '../utils/response'
+import {
+  accessToCourse,
+  isEnrolledIn,
+  isUuid,
+  lessonBelongsToCourse,
+  moduleBelongsToCourse,
+} from '../utils/objectAccess'
 
 interface LearningAnalyticsRow {
   id: string; user_id: string; course_id: string; lesson_id: string | null
@@ -30,6 +37,23 @@ export async function trackLearningActivity(req: Request, res: Response, next: N
 
     if (!courseId || !timeSpent) {
       return fail(res, 'Course ID and time spent are required', 400)
+    }
+
+    // Activity may only be recorded on a course the caller actually belongs to
+    // (enrolled learner, its instructor, or an admin). Without this a student
+    // could write rows into — and inflate — another course's analytics.
+    // The course is resolved first, so a bad id is a 404 for every caller —
+    // including an admin, who would otherwise hit a foreign-key 500.
+    const trackAccess = await accessToCourse(req, courseId)
+    if (trackAccess === 'missing') return notFound(res, 'Course not found')
+    if (trackAccess === 'forbidden' && !(await isEnrolledIn(userId, courseId))) {
+      return forbidden(res, 'You can only track activity for courses you are enrolled in')
+    }
+
+    // A lesson id must belong to the same course, so activity cannot be
+    // attributed to another course's content.
+    if (lessonId && !(await lessonBelongsToCourse(lessonId, courseId))) {
+      return fail(res, 'The lesson must belong to the same course', 400)
     }
 
     // Upsert learning analytics
@@ -92,29 +116,41 @@ export async function getLearningAnalytics(req: Request, res: Response, next: Ne
       [userId, courseId]
     )
 
-    // Get grade performance
-    const { rows: [gradeStats] } = await query<{ overall_grade: string | null; letter_grade: string }>(
-      `SELECT 
-        CASE WHEN COUNT(qa.id) > 0 OR COUNT(s.id) > 0
-          THEN ROUND(
-            (COALESCE(AVG(s.score), 0) + COALESCE(AVG(qa.score), 0)) / 
-            CASE 
-              WHEN COUNT(s.id) > 0 AND COUNT(qa.id) > 0 THEN 2
-              WHEN COUNT(s.id) > 0 OR COUNT(qa.id) > 0 THEN 1
-              ELSE 1
-            END, 2)
-          ELSE NULL
-        END as overall_grade,
-        CASE 
-          WHEN COUNT(qa.id) > 0 OR COUNT(s.id) > 0 THEN 'N/A'
-          ELSE 'N/A'
-        END as letter_grade
-       FROM quizzes q
-       FULL JOIN quiz_attempts qa ON qa.quiz_id = q.id AND qa.user_id = $1 AND qa.completed_at IS NOT NULL AND q.course_id = $2
-       FULL JOIN submissions s ON s.user_id = $1 AND s.status = 'graded'
-       FULL JOIN assignments a ON a.id = s.assignment_id AND a.course_id = $2`,
+    // Get grade performance.
+    // (This used to be a FULL JOIN over quizzes/attempts/submissions/assignments,
+    // which Postgres rejects outright — "FULL JOIN is only supported with
+    // merge-joinable or hash-joinable join conditions" — so the endpoint could
+    // never answer anything but 500. Scalar subqueries give the same numbers.)
+    const { rows: [gradeStats] } = await query<{
+      submission_count: string; submission_avg: string | null
+      quiz_count: string; quiz_avg: string | null
+    }>(
+      `SELECT
+         (SELECT COUNT(*) FROM submissions s
+            JOIN assignments a ON a.id = s.assignment_id
+          WHERE s.user_id = $1 AND a.course_id = $2 AND s.status = 'graded') as submission_count,
+         (SELECT AVG(s.score) FROM submissions s
+            JOIN assignments a ON a.id = s.assignment_id
+          WHERE s.user_id = $1 AND a.course_id = $2 AND s.status = 'graded') as submission_avg,
+         (SELECT COUNT(*) FROM quiz_attempts qa
+            JOIN quizzes q ON q.id = qa.quiz_id
+          WHERE qa.user_id = $1 AND q.course_id = $2
+            AND qa.completed_at IS NOT NULL AND qa.score IS NOT NULL) as quiz_count,
+         (SELECT AVG(qa.score) FROM quiz_attempts qa
+            JOIN quizzes q ON q.id = qa.quiz_id
+          WHERE qa.user_id = $1 AND q.course_id = $2
+            AND qa.completed_at IS NOT NULL AND qa.score IS NOT NULL) as quiz_avg`,
       [userId, courseId]
     )
+
+    // Average of whatever is graded: both streams averaged together, or the
+    // only one present; null when nothing has been graded yet.
+    const submissionAverage = gradeStats?.submission_avg != null ? Number(gradeStats.submission_avg) : null
+    const quizAverage = gradeStats?.quiz_avg != null ? Number(gradeStats.quiz_avg) : null
+    const gradedStreams = [submissionAverage, quizAverage].filter((v): v is number => v != null)
+    const overallGrade = gradedStreams.length > 0
+      ? Number((gradedStreams.reduce((sum, v) => sum + v, 0) / gradedStreams.length).toFixed(2))
+      : null
 
     return ok(res, {
       courseId,
@@ -130,14 +166,14 @@ export async function getLearningAnalytics(req: Request, res: Response, next: Ne
         threadsCreated: Number(forumStats?.thread_count || 0),
         postsMade: Number(forumStats?.post_count || 0),
       },
-      overallGrade: gradeStats?.overall_grade ? Number(gradeStats.overall_grade) : null,
+      overallGrade,
       lessonAnalytics: rows.map(r => ({
         id: r.id,
         lessonId: r.lesson_id,
         lessonTitle: r.lesson_title,
         timeSpent: Number(r.time_spent),
         interactions: Number(r.interactions),
-        lastAccessed: r.last_accessed.toISOString(),
+        lastAccessed: r.last_accessed ? r.last_accessed.toISOString() : null,
       })),
     })
   } catch (err) { next(err) }
@@ -208,12 +244,27 @@ export async function getDripContentSchedule(req: Request, res: Response, next: 
 
 export async function createDripContent(req: Request, res: Response, next: NextFunction) {
   try {
-    const { courseId, moduleId, lessonId, releaseDate } = req.body as {
-      courseId: string; moduleId?: string; lessonId?: string; releaseDate: string
+    const { courseId: bodyCourseId, moduleId, lessonId, releaseDate } = req.body as {
+      courseId?: string; moduleId?: string; lessonId?: string; releaseDate: string
     }
 
-    if (!courseId || !releaseDate) {
-      return fail(res, 'Course ID and release date are required', 400)
+    // The route param — already authorized by requireCourseInstructorOrAdmin —
+    // is the authoritative course. A body-supplied course id can never widen
+    // the target of the write.
+    const courseId = req.params.courseId
+    if (bodyCourseId && bodyCourseId !== courseId) {
+      return fail(res, 'Course ID does not match the requested course', 400)
+    }
+    if (!releaseDate || Number.isNaN(Date.parse(releaseDate))) {
+      return fail(res, 'A valid release date is required', 400)
+    }
+
+    // Scheduled content must belong to this course — never another trainer's.
+    if (moduleId && !(await moduleBelongsToCourse(moduleId, courseId))) {
+      return fail(res, 'The module must belong to this course', 400)
+    }
+    if (lessonId && !(await lessonBelongsToCourse(lessonId, courseId))) {
+      return fail(res, 'The lesson must belong to this course', 400)
     }
 
     const { rows: [schedule] } = await query<DripContentRow>(
@@ -258,11 +309,29 @@ export async function getCoursePrerequisites(req: Request, res: Response, next: 
 
 export async function addCoursePrerequisite(req: Request, res: Response, next: NextFunction) {
   try {
-    const { courseId, prerequisiteId } = req.body as { courseId: string; prerequisiteId: string }
-
-    if (!courseId || !prerequisiteId) {
-      return fail(res, 'Course ID and prerequisite ID are required', 400)
+    const { courseId: bodyCourseId, prerequisiteId } = req.body as {
+      courseId?: string; prerequisiteId: string
     }
+
+    // Same rule as drip scheduling: the authorized route param decides which
+    // course is being configured, never the request body.
+    const courseId = req.params.courseId
+    if (bodyCourseId && bodyCourseId !== courseId) {
+      return fail(res, 'Course ID does not match the requested course', 400)
+    }
+    if (!prerequisiteId) {
+      return fail(res, 'Prerequisite course ID is required', 400)
+    }
+
+    // The prerequisite must be a real, different course — verified server-side.
+    if (!isUuid(prerequisiteId) || prerequisiteId === courseId) {
+      return fail(res, 'The prerequisite must be a different course', 400)
+    }
+    const { rows: [prerequisiteCourse] } = await query<{ id: string }>(
+      'SELECT id FROM courses WHERE id = $1',
+      [prerequisiteId]
+    )
+    if (!prerequisiteCourse) return notFound(res, 'Prerequisite course not found')
 
     const { rows: [prereq] } = await query<PrerequisiteRow>(
       `INSERT INTO course_prerequisites (course_id, prerequisite_id)

@@ -190,7 +190,12 @@ export async function createGroupConversation(req: Request, res: Response, next:
       return fail(res, 'Title is required', 400)
     }
 
-    const client = await req.app.locals.dbClient || (await import('../db/pool')).getClient()
+    // NOTE: `await req.app.locals.dbClient || getClient()` parses as
+    // (await dbClient) || getClient() — the right-hand side is a *Promise*, so
+    // `client.query`/`client.release` would not exist and the endpoint would
+    // always answer 500. Await the client itself.
+    const injected = await req.app.locals.dbClient
+    const client = injected ?? await (await import('../db/pool')).getClient()
 
     try {
       await client.query('BEGIN')
