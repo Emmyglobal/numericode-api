@@ -4,6 +4,7 @@ import {
   listPublicTestimonials,
   submitTestimonial,
   listAllTestimonials,
+  listMyTestimonials,
   moderateTestimonial,
 } from '../controllers/testimonials.controller'
 
@@ -12,6 +13,9 @@ const router = Router()
 // Public routes
 router.get('/', listPublicTestimonials)
 router.post('/', submitTestimonial)
+
+// The signed-in learner's own submissions and their review status.
+router.get('/mine', requireAuth, listMyTestimonials)
 
 // Admin/Trainer moderation routes
 router.get('/admin/all', requireAuth, requireRole('admin', 'trainer'), listAllTestimonials)

@@ -31,6 +31,40 @@ export async function listPublicTestimonials(_req: Request, res: Response, next:
   } catch (err) { next(err) }
 }
 
+/**
+ * GET /api/testimonials/mine — the signed-in learner's own submissions.
+ *
+ * A learner who submits a testimonial sees no change on the public list until a
+ * moderator approves it, which reads as "it vanished". This lets them see the
+ * status of their OWN submissions.
+ *
+ * Matched on the authenticated user's account, NOT on an email taken from the
+ * query string, so this cannot be used to discover whether somebody else's
+ * testimonial exists (no email enumeration).
+ */
+export async function listMyTestimonials(req: Request, res: Response, next: NextFunction) {
+  try {
+    // The JWT carries only userId/role, so resolve the email from the account.
+    const { rows } = await query<{ id: string; name: string; course: string | null; message: string; status: string; created_at: Date }>(
+      `SELECT t.id, t.name, t.course, t.message, t.status, t.created_at
+       FROM testimonials t
+       JOIN users u ON LOWER(u.email) = LOWER(t.email)
+       WHERE u.id = $1
+       ORDER BY t.created_at DESC
+       LIMIT 20`,
+      [req.user!.userId]
+    )
+    return ok(res, rows.map(r => ({
+      id: r.id,
+      name: r.name,
+      course: r.course,
+      message: r.message,
+      status: r.status,
+      submittedAt: r.created_at.toISOString(),
+    })))
+  } catch (err) { next(err) }
+}
+
 /** POST /api/testimonials — public submission. Authenticated users are linked via email. */
 export async function submitTestimonial(req: Request, res: Response, next: NextFunction) {
   try {

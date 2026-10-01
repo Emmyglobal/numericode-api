@@ -115,8 +115,69 @@ describe('Testimonials — admin moderation', () => {
   })
 })
 
+describe('Testimonials — a learner can see their own submission status', () => {
+  // Regression: a submitted testimonial is hidden from the public list until a
+  // moderator approves it, which used to look to learners like it vanished.
+  const studentEmail = 'chidi@gmail.com'
+
+  it('401 — /mine requires authentication', async () => {
+    const res = await request(app).get('/api/testimonials/mine')
+    expect(res.status).toBe(401)
+  })
+
+  it('200 — lists the signed-in learner own submissions with their status', async () => {
+    const studentLogin = await request(app).post('/api/auth/login').send({ email: studentEmail, password: 'password123' })
+    const studentToken = studentLogin.body.data.token
+    expect(studentToken).toBeTruthy()
+
+    const marker = `mine-${Date.now()}`
+    const created = await request(app).post('/api/testimonials').send({
+      ...basePayload, email: studentEmail, message: `A testimonial from a signed in learner. ${marker}`,
+    })
+    expect(created.status).toBe(201)
+    expect(created.body.data.status).toBe('pending')
+
+    const res = await request(app).get('/api/testimonials/mine').set({ Authorization: `Bearer ${studentToken}` })
+    expect(res.status).toBe(200)
+    expect(Array.isArray(res.body.data)).toBe(true)
+
+    const mine = res.body.data.find((t: { message: string }) => t.message.includes(marker))
+    expect(mine).toBeDefined()
+    expect(mine.status).toBe('pending')
+    expect(mine.message).toContain(marker)
+  })
+
+  it('200 — status flips to approved once an admin approves it', async () => {
+    const studentLogin = await request(app).post('/api/auth/login').send({ email: studentEmail, password: 'password123' })
+    const studentToken = studentLogin.body.data.token
+
+    const marker = `flip-${Date.now()}`
+    const created = await request(app).post('/api/testimonials').send({
+      ...basePayload, email: studentEmail, message: `Approval visibility check. ${marker}`,
+    })
+    const testimonialId = created.body.data.id
+
+    const approved = await request(app).patch(`/api/testimonials/admin/${testimonialId}`).set({ Authorization: `Bearer ${adminToken}` }).send({ status: 'approved' })
+    expect(approved.status).toBe(200)
+
+    const res = await request(app).get('/api/testimonials/mine').set({ Authorization: `Bearer ${studentToken}` })
+    const mine = res.body.data.find((t: { message: string }) => t.message.includes(marker))
+    expect(mine).toBeDefined()
+    expect(mine.status).toBe('approved')
+  })
+
+  it('200 — never returns another learner private data to the wrong account', async () => {
+    const studentLogin = await request(app).post('/api/auth/login').send({ email: studentEmail, password: 'password123' })
+    const studentToken = studentLogin.body.data.token
+    const res = await request(app).get('/api/testimonials/mine').set({ Authorization: `Bearer ${studentToken}` })
+    expect(res.status).toBe(200)
+    // The endpoint must not leak other people's submissions or their emails.
+    expect(res.body.data.every((t: Record<string, unknown>) => !('email' in t))).toBe(true)
+  })
+})
+
 afterAll(async () => {
   try {
-    await query(`DELETE FROM testimonials WHERE email LIKE 'pub-%' OR email LIKE 'dup-%' OR email LIKE 'approve-%' OR email LIKE 'noname-%' OR email LIKE 'short-%' OR email LIKE 'nc-%'`)
+    await query(`DELETE FROM testimonials WHERE email LIKE 'pub-%' OR email LIKE 'dup-%' OR email LIKE 'approve-%' OR email LIKE 'noname-%' OR email LIKE 'short-%' OR email LIKE 'nc-%' OR email = 'chidi@gmail.com'`)
   } catch { /* ignore cleanup errors in CI */ }
 })
