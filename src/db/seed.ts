@@ -6,6 +6,9 @@ import { ensureSS2MathematicsCourse } from './ss2-mathematics'
 import { ensureMachineLearningCourse } from './ml-course'
 import { ensurePythonCourse } from './python-course'
 import { ensureJavaScriptCourse } from './js-course'
+import { ensureJss1FirstTermCourse } from './jss1-first-term'
+import { ensureJss1SecondTermCourse } from './jss1-second-term'
+import { ensureJss1ThirdTermCourse } from './jss1-third-term'
 import { ensureJss2FirstTermCourse } from './jss2-first-term'
 import { ensureJss2SecondTermCourse } from './jss2-second-term'
 import { ensureJss2ThirdTermCourse } from './jss2-third-term'
@@ -229,6 +232,9 @@ export async function seed() {
     await ensureMachineLearningCourse()
     await ensurePythonCourse()
     await ensureJavaScriptCourse()
+        await ensureJss1FirstTermCourse()
+        await ensureJss1SecondTermCourse()
+        await ensureJss1ThirdTermCourse()
         await ensureJss2FirstTermCourse()
     await ensureJss2SecondTermCourse()
     await ensureJss2ThirdTermCourse()
@@ -1809,6 +1815,9 @@ If 250 were claimed as a term of 3, 8, 13…, solving 5n − 2 = 250 gives non-i
     await ensureMachineLearningCourse()
     await ensurePythonCourse()
     await ensureJavaScriptCourse()
+        await ensureJss1FirstTermCourse()
+        await ensureJss1SecondTermCourse()
+        await ensureJss1ThirdTermCourse()
         await ensureJss2FirstTermCourse()
     await ensureJss2SecondTermCourse()
     await ensureJss2ThirdTermCourse()
