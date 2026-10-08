@@ -99,6 +99,7 @@ export async function buildFullCourse(course: CourseRow, includeProtectedContent
   return {
     id: course.id, title: course.title, description: course.description, content: course.content,
     subject: course.subject, level: course.level, lessonCount: course.lesson_count,
+    thumbnailUrl: course.thumbnail_url,
     accessLevel: course.access_level, priceCents: course.price_cents, currency: course.currency, premiumEnabled: course.premium_enabled,
     outcomes: course.outcomes, createdAt: course.created_at.toISOString(), updatedAt: course.updated_at.toISOString(),
     instructor: { id: instructor.id, name: instructor.name, bio: instructor.bio, avatarUrl: instructor.avatar_url ?? undefined, credentials: [] as string[] },

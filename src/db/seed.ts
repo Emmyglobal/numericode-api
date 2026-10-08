@@ -19,6 +19,7 @@ import { ensureReactCourse } from './react-course'
 import { ensureHtmlCssFundamentalsCourse } from './html-css-fundamentals'
 import { ensureMathToCodingCourse } from './math-to-coding'
 import { ensureSevenDayMathChallengeCourse } from './seven-day-math-challenge'
+import { ensureHtmlCssKidsPremiumCourse } from './html-css-kids-premium'
 
 export async function seed() {
   console.log('Seeding database...')
@@ -243,6 +244,7 @@ export async function seed() {
     await ensureSs1ThirdTermCourse()
     await ensureReactCourse()
     await ensureHtmlCssFundamentalsCourse()
+    await ensureHtmlCssKidsPremiumCourse()
     await ensureMathToCodingCourse()
     // Free-entry acquisition course (access_level = 'free'), created after the
     // trainer accounts exist so it can be owned by a real active trainer.
