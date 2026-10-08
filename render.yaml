@@ -35,7 +35,9 @@ services:
         sync: false
       - key: CLIENT_URL
         sync: false
-      - key: SENDGRID_API_KEY
+      - key: RESEND_API_KEY
+        sync: false
+      - key: RESEND_WEBHOOK_SECRET
         sync: false
       - key: GOOGLE_CLIENT_ID
         sync: false

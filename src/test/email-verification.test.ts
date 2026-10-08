@@ -7,7 +7,7 @@ import { query } from '../db/pool'
 import { sendEmailVerificationEmail, sendPasswordResetEmail, sendPasswordChangedEmail } from '../utils/mailer'
 
 // ─── Email verification (registration + password recovery) ────────────────────
-// These tests exercise the REAL API and database; only the SendGrid entry
+// These tests exercise the REAL API and database; only the Resend entry
 // points are mocked so no email is ever sent. The raw tokens the API "emails"
 // are captured from the mocks and used to drive the verification endpoints —
 // i.e. the tests do exactly what a user clicking the emailed link does.

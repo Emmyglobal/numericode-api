@@ -722,6 +722,28 @@ try {
         BEFORE UPDATE ON courses
         FOR EACH ROW
         EXECUTE FUNCTION maintain_courses_updated_at();
+
+      -- Email delivery events (Resend receiving side) ------------------------
+      -- Append-only log of Resend webhook events (email.sent / delivered /
+      -- bounced / complained / opened / clicked …). The payload is NEVER
+      -- trusted for state changes — it is reporting/retention only. Bounces
+      -- and complaints are surfaced so operators can suppress bad addresses
+      -- and so a future guard can refuse to send to known-bad mailboxes.
+      CREATE TABLE IF NOT EXISTS email_events (
+        id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        resend_id     TEXT NOT NULL,
+        type          TEXT NOT NULL,
+        to_email      TEXT,
+        from_email    TEXT,
+        subject       TEXT,
+        created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        raw           JSONB NOT NULL DEFAULT '{}'::jsonb,
+        UNIQUE(resend_id, type)
+      );
+      CREATE INDEX IF NOT EXISTS idx_email_events_resend_id ON email_events(resend_id);
+      CREATE INDEX IF NOT EXISTS idx_email_events_type ON email_events(type);
+      CREATE INDEX IF NOT EXISTS idx_email_events_to_email ON email_events(to_email);
+      CREATE INDEX IF NOT EXISTS idx_email_events_created_at ON email_events(created_at DESC);
     `);
 
     console.log('Migrations completed successfully!');

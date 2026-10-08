@@ -104,7 +104,8 @@ In Render dashboard, go to **Environment** tab and add:
 | `JWT_SECRET` | Generate a random string (use `openssl rand -hex 32`) |
 | `JWT_EXPIRES_IN` | `7d` |
 | `CLIENT_URL` | Your frontend URL (e.g., `https://yourdomain.com`) |
-| `SENDGRID_API_KEY` | Your SendGrid API key |
+| `RESEND_API_KEY` | Your Resend API key (`re_…`) |
+| `RESEND_WEBHOOK_SECRET` | Signing secret for `POST /api/webhooks/resend` |
 | `GOOGLE_CLIENT_ID` | Your Google OAuth ID |
 | `GOOGLE_CLIENT_SECRET` | Your Google OAuth secret |
 
@@ -175,7 +176,7 @@ Then rebuild and redeploy your frontend.
 
 1. ✅ Test all API endpoints
 2. ✅ Verify user authentication
-3. ✅ Check email notifications (SendGrid)
+3. ✅ Check email notifications (Resend)
 4. ✅ Test Google OAuth
 5. ✅ Monitor Render logs for errors
 

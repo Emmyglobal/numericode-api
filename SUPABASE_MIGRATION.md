@@ -150,7 +150,8 @@ DATABASE_URL=postgresql://postgres:YOUR_PASSWORD@db.xxxxx.supabase.co:6543/postg
 JWT_SECRET=generate_a_random_string_here
 JWT_EXPIRES_IN=7d
 CLIENT_URL=https://yourdomain.com
-SENDGRID_API_KEY=your_key
+RESEND_API_KEY=your_resend_key
+RESEND_WEBHOOK_SECRET=your_resend_webhook_signing_secret
 GOOGLE_CLIENT_ID=your_id
 GOOGLE_CLIENT_SECRET=your_secret
 ```
@@ -193,7 +194,8 @@ In Render dashboard for your service:
    - `JWT_SECRET` = Generate a random string
    - `JWT_EXPIRES_IN` = `7d`
    - `CLIENT_URL` = Your frontend URL
-   - `SENDGRID_API_KEY` = Your SendGrid key
+   - `RESEND_API_KEY` = Your Resend key
+   - `RESEND_WEBHOOK_SECRET` = Signing secret for POST /api/webhooks/resend
    - `GOOGLE_CLIENT_ID` = Your Google OAuth ID
    - `GOOGLE_CLIENT_SECRET` = Your Google OAuth Secret
 

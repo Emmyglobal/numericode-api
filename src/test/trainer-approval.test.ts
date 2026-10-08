@@ -4,7 +4,7 @@ import { createApp } from '../app'
 import { query } from '../db/pool'
 import { sendEmailVerificationEmail, sendActivationEmail, sendAccountApprovedEmail } from '../utils/mailer'
 
-// Mock ONLY the SendGrid entry points this lifecycle exercises — no real email
+// Mock ONLY the Resend entry points this lifecycle exercises — no real email
 // is ever sent from tests. The raw verification token the backend "emails" is
 // captured from the mock, so the complete register → verify → approve → login
 // flow runs against the real API and database.

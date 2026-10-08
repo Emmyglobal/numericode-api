@@ -1,14 +1,39 @@
-import sgMail from '@sendgrid/mail'
+import { Resend } from 'resend'
 
-sgMail.setApiKey(process.env.SENDGRID_API_KEY || '')
+// ─── Resend email provider (replaces SendGrid) ──────────────────────────────
+// Sending: Resend Node SDK (`resend` package, RESEND_API_KEY).
+// Receiving (delivery status): Resend webhooks (Svix-signed) →
+//   POST /api/webhooks/resend — see controllers/email-webhook.controller.ts.
+//   Events persisted to `email_events` (migrate.ts) for reporting/retention.
+//
+// Setup:
+//   1. Create key: https://resend.com/api-keys → RESEND_API_KEY=re_…
+//   2. Verify domain: https://resend.com/domains (add SPF/DKIM DNS records).
+//      EMAIL_FROM must be on that verified domain.
+//   3. Create webhook: https://resend.com/webhooks → URL
+//      https://<your-api-domain>/api/webhooks/resend, events:
+//      email.sent, email.delivered, email.delivery_delayed, email.bounced,
+//      email.complained (+ email.opened / email.clicked optional).
+//      Copy the Signing Secret → RESEND_WEBHOOK_SECRET.
+//   4. Test mode: without RESEND_API_KEY, sends are skipped with a warning
+//      (same fire-and-forget behaviour the SendGrid version had — API never
+//      fails because email failed). Tests mock `../utils/mailer` so no real
+//      email is ever sent from the suite.
+function getResend(): Resend | null {
+  const key = process.env.RESEND_API_KEY
+  if (!key) return null
+  return new Resend(key)
+}
+
+function warnNoKey(fn: string) {
+  console.warn(`[mailer] RESEND_API_KEY is not set — skipping ${fn} (email not sent)`)
+}
 
 // Sender configuration -----------------------------------------------------
-// CRITICAL - To avoid spam, EMAIL_FROM must be a sender verified in your
-// SendGrid account. Using unauthenticated Gmail addresses causes SPF/DKIM
-// failures, and receiving mail servers reject or spam the email.
-// Best: authenticate your custom domain (e.g. numerycode.com) in SendGrid
-// (Settings > Sender Authentication > Domain Authentication - adds DKIM/SPF
-// DNS records). Then EMAIL_FROM can be any address on that domain.
+// CRITICAL - To avoid spam, EMAIL_FROM must be on a domain verified in your
+// Resend account (https://resend.com/domains — adds SPF/DKIM DNS records).
+// Using unverified domains causes SPF/DKIM failures, and receiving mail
+// servers reject or spam the email.
 const EMAIL_FROM = process.env.EMAIL_FROM || 'noreply@numerycode.com'
 const EMAIL_FROM_NAME = process.env.EMAIL_FROM_NAME || 'NumeryCode'
 const CLIENT_URL = process.env.CLIENT_URL || 'http://localhost:5173'
@@ -33,6 +58,7 @@ interface MailBaseInput {
   subject: string
   html: string
   text: string
+  replyTo?: string
   unsubscribeLink?: string
 }
 
@@ -93,21 +119,37 @@ function ctaButton(href: string, label: string): string {
     </table>`
 }
 
-async function sendMail(input: MailBaseInput) {
-  const msg: sgMail.MailDataRequired = {
-    from: { name: EMAIL_FROM_NAME, email: EMAIL_FROM },
+async function sendMail(input: MailBaseInput): Promise<string | null> {
+  const resend = getResend()
+  if (!resend) {
+    warnNoKey(`sendMail to ${input.to} (${input.subject})`)
+    return null
+  }
+  const { data, error } = await resend.emails.send({
+    from: `${EMAIL_FROM_NAME} <${EMAIL_FROM}>`,
     to: input.to,
     subject: input.subject,
     html: input.html,
     text: input.text + plainTextFooter(),
+    ...(input.replyTo ? { replyTo: input.replyTo } : {}),
+    ...(input.unsubscribeLink
+      ? {
+          headers: {
+            'List-Unsubscribe': `<${input.unsubscribeLink}>`,
+            'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click',
+          },
+        }
+      : {}),
+    // Tag every outbound message so delivery/bounce webhooks can be joined
+    // back to the send in the `email_events` table.
+    tags: [{ name: 'app', value: 'numerycode' }],
+  })
+  if (error) {
+    // Throw so callers log per-template (preserves old SendGrid log shape,
+    // minus the provider name). Resend error: { name, message }.
+    throw new Error(`Resend send failed: ${error.name}: ${error.message}`)
   }
-  if (input.unsubscribeLink) {
-    msg.headers = {
-      'List-Unsubscribe': `<${input.unsubscribeLink}>`,
-      'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click',
-    }
-  }
-  await sgMail.send(msg)
+  return data?.id ?? null
 }
 
 export async function sendEmail(input: { to: string; subject: string; html: string; text?: string }) {
@@ -119,14 +161,14 @@ export async function sendEmail(input: { to: string; subject: string; html: stri
       text: input.text || input.html.replace(/<[^>]+>/g, ' ').trim().slice(0, 500),
     })
   } catch (err) {
-    console.error('SendGrid sendEmail failed:', err)
+    console.error('Resend sendEmail failed:', err)
   }
 }
 
 /**
  * Notifies a student by email that a trainer has sent them a message.
  * Triggers from messaging.controller sendMessage when a trainer writes to a
- * student. Fire-and-forget: any SendGrid failure is logged, never fails the
+ * student. Fire-and-forget: any Resend failure is logged, never fails the
  * API request or the message insert.
  */
 export async function sendTrainerMessageEmail(input: {
@@ -167,18 +209,17 @@ export async function sendTrainerMessageEmail(input: {
         `Open your messages: ${inboxLink}`,
     })
   } catch (err) {
-    console.error('SendGrid sendTrainerMessageEmail failed:', err)
+    console.error('Resend sendTrainerMessageEmail failed:', err)
   }
 }
 
 export async function sendContactEmail(input: ContactMailInput) {
   try {
-    await sgMail.send({
-      from: { name: EMAIL_FROM_NAME, email: EMAIL_FROM },
+    await sendMail({
       to: CONTACT_EMAIL_TO,
       replyTo: input.email,
       subject: `[NumeryCode Contact] ${input.subject}`,
-      text: `From: ${input.name} <${input.email}>\n\n${input.message}${plainTextFooter()}`,
+      text: `From: ${input.name} <${input.email}>\n\n${input.message}`,
       html: buildHtml('New Contact Form Submission', `
         <table cellpadding="0" cellspacing="0" style="width:100%; font-size:15px; color:#374151; line-height:1.6;">
           <tr><td style="padding:4px 0;"><strong>Name:</strong> ${escapeHtml(input.name)}</td></tr>
@@ -189,7 +230,7 @@ export async function sendContactEmail(input: ContactMailInput) {
         </table>`),
     })
   } catch (err) {
-    console.error('SendGrid sendContactEmail failed:', err)
+    console.error('Resend sendContactEmail failed:', err)
   }
 }
 
@@ -220,7 +261,7 @@ export async function sendWelcomeEmail(input: WelcomeMailInput) {
         `Go to your dashboard: ${dashboardLink}`,
     })
   } catch (err) {
-    console.error('SendGrid sendWelcomeEmail failed:', err)
+    console.error('Resend sendWelcomeEmail failed:', err)
   }
 }
 
@@ -249,7 +290,7 @@ export async function sendPasswordResetEmail(email: string, name: string, resetT
         `This link will expire in 1 hour. If you didn't request this, ignore this email.`,
     })
   } catch (err) {
-    console.error('SendGrid sendPasswordResetEmail failed:', err)
+    console.error('Resend sendPasswordResetEmail failed:', err)
   }
 }
 
@@ -276,7 +317,7 @@ export async function sendAdminApprovalEmail(input: { adminEmail: string; userNa
         `Please review and approve the account from the admin panel.`,
     })
   } catch (err) {
-    console.error('SendGrid sendAdminApprovalEmail failed:', err)
+    console.error('Resend sendAdminApprovalEmail failed:', err)
   }
 }
 
@@ -315,7 +356,7 @@ export async function sendActivationEmail(email: string, name: string, role: str
         `Once activated, visit your dashboard: ${dashboardLink}`,
     })
   } catch (err) {
-    console.error('SendGrid sendActivationEmail failed:', err)
+    console.error('Resend sendActivationEmail failed:', err)
   }
 }
 
@@ -344,7 +385,7 @@ export async function sendAccountSuspendedEmail(email: string, name: string, rea
         `If you believe this is a mistake, please contact support: ${CONTACT_EMAIL_TO}`,
     })
   } catch (err) {
-    console.error('SendGrid sendAccountSuspendedEmail failed:', err)
+    console.error('Resend sendAccountSuspendedEmail failed:', err)
   }
 }
 
@@ -374,7 +415,7 @@ export async function sendAccountDeletedEmail(email: string, name: string, reaso
         `If you have questions, please contact support: ${CONTACT_EMAIL_TO}`,
     })
   } catch (err) {
-    console.error('SendGrid sendAccountDeletedEmail failed:', err)
+    console.error('Resend sendAccountDeletedEmail failed:', err)
   }
 }
 
@@ -414,7 +455,7 @@ export async function sendEmailVerificationEmail(email: string, name: string, to
         `registration — you can log in once your account is approved and your email address is verified.`,
     })
   } catch (err) {
-    console.error('SendGrid sendEmailVerificationEmail failed:', err)
+    console.error('Resend sendEmailVerificationEmail failed:', err)
   }
 }
 
@@ -442,7 +483,7 @@ export async function sendAccountApprovedEmail(email: string, name: string, role
         `Log in: ${loginLink}`,
     })
   } catch (err) {
-    console.error('SendGrid sendAccountApprovedEmail failed:', err)
+    console.error('Resend sendAccountApprovedEmail failed:', err)
   }
 }
 
@@ -474,6 +515,6 @@ export async function sendPasswordChangedEmail(email: string, name: string) {
         `Log in: ${loginLink}`,
     })
   } catch (err) {
-    console.error('SendGrid sendPasswordChangedEmail failed:', err)
+    console.error('Resend sendPasswordChangedEmail failed:', err)
   }
 }

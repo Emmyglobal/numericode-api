@@ -14,6 +14,7 @@ import trainerRoutes      from './routes/trainer.routes'
 import adminRoutes        from './routes/admin.routes'
 import notificationsRoutes from './routes/notifications.routes'
 import contactRoutes      from './routes/contact.routes'
+import emailWebhookRoutes from './routes/email-webhook.routes'
 import aiRoutes           from './routes/ai.routes'
 import subscriptionsRoutes from './routes/subscriptions.routes'
 import paymentsRoutes    from './routes/payments.routes'
@@ -75,6 +76,7 @@ app.get('/health', (_req, res) => {
   app.use('/api/admin',   adminRoutes)
   app.use('/api/admin',   adminCourseContentRoutes)
   app.use('/api',         contactRoutes)
+  app.use('/api',         emailWebhookRoutes)
   app.use('/api/ai',      aiRoutes)
   app.use('/api/subscriptions', subscriptionsRoutes)
   app.use('/api/payments', paymentsRoutes)

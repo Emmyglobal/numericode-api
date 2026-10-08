@@ -52,7 +52,7 @@ export async function sendMessage(req: Request, res: Response, next: NextFunctio
     )
 
     // Email the student when a trainer (or admin) sends them a message. This is
-    // fire-and-forget: a SendGrid failure must not fail the message insert.
+    // fire-and-forget: a Resend failure must not fail the message insert.
     if (receiver && receiver.role === 'student') {
       const { rows: [sender] } = await query<{ role: string; name: string }>(
         'SELECT role, name FROM users WHERE id = $1', [senderId]
