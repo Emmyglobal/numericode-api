@@ -3,10 +3,12 @@ services:
     name: numerycode-api
     runtime: node
     plan: free
-    # Pin to Node.js 18 — required for native fetch() and AbortSignal.timeout()
-    # used by flutterwave.service.ts and paystack.service.ts. Without this,
-    # Render's default (which may be < 18) causes "fetch is not defined" → 502.
-    nodeVersion: '18'
+    # Pin to Node.js 22 — resend v6 requires >= 20 and the Svix-signed webhook
+    # verification plus native fetch()/AbortSignal.timeout() used by
+    # flutterwave.service.ts and paystack.service.ts need a modern runtime.
+    # Without this, Render's default may lag and cause EBADENGINE warnings,
+    # "fetch is not defined" → 502, or ESM-loading crashes.
+    nodeVersion: '22'
     buildCommand: npm install && npm run build
     # Run database migrations as part of every deploy. Two mechanisms are used
     # so it works regardless of how the service is deployed:
